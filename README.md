@@ -1,6 +1,6 @@
-# ClippedImageToPath
+# Clipped Image to Path
 
-ClippedImageToPath is a lightweight Windows tray app that saves copied clipboard images as PNG files. Smart paste keeps the real image available for normal `Ctrl+V` pastes while `Shift+Insert` pastes the saved file path.
+Clipped Image to Path is a lightweight Windows tray app that saves copied clipboard images as PNG files. Smart paste keeps the real image available for normal `Ctrl+V` pastes while `Shift+Insert` pastes the saved file path.
 
 This solves the common issue where Windows Terminal cannot paste bitmap clipboard formats directly into CLI tools.
 
@@ -27,9 +27,9 @@ The Settings dialog: output folder, WSL path toggle, and remote upload with name
 
 ## Download
 
-Grab the latest **ClippedImageToPath.exe** from the [Releases page](https://github.com/alexlvcom/clipped-image-to-path/releases/latest) — or directly:
+Grab the latest **ClippedImageToPath.exe** from the [Releases page](https://github.com/alexlvcom/ClippedImageToPath/releases/latest) — or directly:
 
-**https://github.com/alexlvcom/clipped-image-to-path/releases/latest/download/ClippedImageToPath.exe**
+**https://github.com/alexlvcom/ClippedImageToPath/releases/latest/download/ClippedImageToPath.exe**
 
 It's a single, self-contained executable — **no .NET runtime install needed**. Just download and double-click; it starts in the system tray.
 
@@ -45,7 +45,7 @@ Each release lists the SHA-256 of the exe. To check the file you downloaded matc
 Get-FileHash .\ClippedImageToPath.exe -Algorithm SHA256
 ```
 
-Compare the output against the hash on that version's [release page](https://github.com/alexlvcom/clipped-image-to-path/releases/latest).
+Compare the output against the hash on that version's [release page](https://github.com/alexlvcom/ClippedImageToPath/releases/latest).
 
 ## What It Does
 
@@ -146,7 +146,7 @@ A runtime log is written to:
 - If output path has spaces, quoted clipboard text prevents CLI parsing issues.
 - In clipboard managers, you may see extra entries for one screenshot or terminal paste:
   - the original image clip from your screenshot tool
-  - the temporary path clip written by ClippedImageToPath for a terminal paste
+  - the temporary path clip written by Clipped Image to Path for a terminal paste
 - `Shift+Insert` always requests the saved path, so it also works in terminals hosted inside editors and other applications.
 - If you want to hide the app-generated entry, add `ClippedImageToPath.exe` to your clipboard manager's ignore-app list.
 

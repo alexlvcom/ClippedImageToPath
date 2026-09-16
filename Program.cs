@@ -30,7 +30,7 @@ internal static class Program
 
 internal sealed class ClipboardBridgeContext : ApplicationContext
 {
-    private const string AppName = "ClippedImageToPath";
+    private const string AppName = "Clipped Image to Path";
 
     // Config
     private const string FilePrefix = "clipboard_";

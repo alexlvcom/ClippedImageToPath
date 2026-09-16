@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.6.1 - 2026-09-16
+
+- Call the app "Clipped Image to Path" in every user-visible string: the About window, the
+  Settings title, the tray tooltip and all dialog captions.
+- Keep the one-word `ClippedImageToPath` where it is an identifier: the executable, the
+  GitHub repository, and the `%APPDATA%\ClippedImageToPath` settings folder.
+- Move the GitHub repository from `alexlvcom/clipped-image-to-path` to
+  `alexlvcom/ClippedImageToPath`; old links still redirect.
+
 ## 1.6.0 - 2026-09-04
 
 - Add settings to turn remote upload notifications on or off and choose their interval in minutes.
