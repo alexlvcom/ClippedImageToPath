@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.6.2 - 2026-09-29
+
+- Add an application icon to the executable so it displays properly in the Start menu, Windows Search, Taskbar, and File Explorer.
+- Set the application icon for all dialog windows.
+- Set assembly title and file description metadata to "Clipped Image to Path" so the application displays its spaced name in the Start menu and Windows Search.
+
 ## 1.6.1 - 2026-09-16
 
 - Call the app "Clipped Image to Path" in every user-visible string: the About window, the

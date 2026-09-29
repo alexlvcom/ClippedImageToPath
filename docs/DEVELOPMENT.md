@@ -22,6 +22,7 @@ Windows x64 executable the releases ship.
 ```
 Program.cs                  app logic, tray UI, settings, clipboard listener
 ClippedImageToPath.csproj   project metadata and version
+ClippedImageToPath.ico      multi-resolution application icon
 CHANGELOG.md                user-visible change history
 ```
 

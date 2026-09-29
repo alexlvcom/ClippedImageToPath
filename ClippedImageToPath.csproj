@@ -7,11 +7,14 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>ClippedImageToPath</AssemblyName>
     <RootNamespace>ClippedImageToPath</RootNamespace>
+    <AssemblyTitle>Clipped Image to Path</AssemblyTitle>
     <Product>Clipped Image to Path</Product>
-    <Version>1.6.1</Version>
-    <FileVersion>1.6.1.0</FileVersion>
-    <AssemblyVersion>1.6.1.0</AssemblyVersion>
-    <InformationalVersion>1.6.1</InformationalVersion>
+    <Description>Clipped Image to Path</Description>
+    <ApplicationIcon>ClippedImageToPath.ico</ApplicationIcon>
+    <Version>1.6.2</Version>
+    <FileVersion>1.6.2.0</FileVersion>
+    <AssemblyVersion>1.6.2.0</AssemblyVersion>
+    <InformationalVersion>1.6.2</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
   <ItemGroup>

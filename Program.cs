@@ -14,8 +14,14 @@ using Renci.SshNet;
 internal static class Program
 {
     [STAThread]
-    private static void Main()
+    private static void Main(string[] args)
     {
+        if (args.Length > 0 && args[0] == "--make-ico")
+        {
+            TrayIconFactory.SaveApplicationIcon(args.Length > 1 ? args[1] : "ClippedImageToPath.ico");
+            return;
+        }
+
         using var mutex = new Mutex(initiallyOwned: true, name: "ClippedImageToPath.Singleton", createdNew: out var createdNew);
         if (!createdNew)
         {
@@ -233,6 +239,7 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         using var settingsForm = new Form
         {
             Text = $"{AppName} Settings",
+            Icon = _trayIcon,
             StartPosition = FormStartPosition.CenterScreen,
             FormBorderStyle = FormBorderStyle.FixedDialog,
             MaximizeBox = false,
@@ -459,6 +466,7 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         using var form = new Form
         {
             Text = "Remote Servers",
+            Icon = _trayIcon,
             StartPosition = FormStartPosition.CenterParent,
             FormBorderStyle = FormBorderStyle.FixedDialog,
             MaximizeBox = false,
@@ -680,6 +688,7 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         using var sshForm = new Form
         {
             Text = isNew ? "Add Remote Server" : "Edit Remote Server",
+            Icon = _trayIcon,
             StartPosition = FormStartPosition.CenterParent,
             FormBorderStyle = FormBorderStyle.FixedDialog,
             MaximizeBox = false,
@@ -917,6 +926,7 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         using var about = new Form
         {
             Text = $"About {AppName}",
+            Icon = _trayIcon,
             StartPosition = FormStartPosition.CenterScreen,
             FormBorderStyle = FormBorderStyle.FixedDialog,
             MaximizeBox = false,
@@ -948,7 +958,7 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
 
         AddAboutRow(details, 0, "Version", version);
         AddAboutRow(details, 1, "Build date", File.GetLastWriteTime(Application.ExecutablePath).ToString("yyyy-MM-dd HH:mm:ss"));
-        AddAboutRow(details, 2, "Build summary", "Clear, configurable remote upload reminders and Settings help.");
+        AddAboutRow(details, 2, "Build summary", "Application icon for the executable, Start menu, and dialogs.");
         AddAboutRow(details, 3, "Copyright", $"(c) {DateTime.Now.Year} Alex LV");
 
         var close = new Button
@@ -2602,6 +2612,125 @@ internal static class TrayIconFactory
         return Create(Color.FromArgb(0, 95, 170), Color.White, drawUploadBadge: true);
     }
 
+    internal static void SaveApplicationIcon(string filePath)
+    {
+        int[] sizes = [16, 20, 24, 30, 32, 40, 48, 64, 128, 256];
+        var frames = new byte[sizes.Length][];
+
+        for (int i = 0; i < sizes.Length; i++)
+        {
+            int s = sizes[i];
+            using var bmp = new Bitmap(s, s, PixelFormat.Format32bppArgb);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                g.Clear(Color.Transparent);
+
+                float scale = s / 32.0f;
+                using var bgBrush = new SolidBrush(Color.FromArgb(0, 120, 80));
+                FillRoundedRectangle(g, bgBrush, 2f * scale, 2f * scale, 28f * scale, 28f * scale, 7f * scale);
+
+                using var fillBrush = new SolidBrush(Color.FromArgb(60, 255, 255, 255));
+                g.FillRectangle(fillBrush, 9f * scale, 8f * scale, 10f * scale, 8f * scale);
+                g.FillRectangle(fillBrush, 13f * scale, 18f * scale, 8f * scale, 3f * scale);
+
+                using var pen = new Pen(Color.White, Math.Max(1f, 2f * scale));
+                g.DrawRectangle(pen, 8f * scale, 7f * scale, 12f * scale, 10f * scale);
+                g.DrawLine(pen, 12f * scale, 20f * scale, 24f * scale, 20f * scale);
+                g.DrawLine(pen, 24f * scale, 20f * scale, 24f * scale, 12f * scale);
+            }
+
+            if (s >= 128)
+            {
+                using var ms = new MemoryStream();
+                bmp.Save(ms, ImageFormat.Png);
+                frames[i] = ms.ToArray();
+            }
+            else
+            {
+                frames[i] = CreateDibFrame(bmp);
+            }
+        }
+
+        using var fs = File.Create(filePath);
+        using var bw = new BinaryWriter(fs);
+        bw.Write((ushort)0); // reserved
+        bw.Write((ushort)1); // type (1 = ICO)
+        bw.Write((ushort)sizes.Length); // count
+
+        int offset = 6 + sizes.Length * 16;
+        for (int i = 0; i < sizes.Length; i++)
+        {
+            int s = sizes[i];
+            bw.Write((byte)(s >= 256 ? 0 : s)); // width
+            bw.Write((byte)(s >= 256 ? 0 : s)); // height
+            bw.Write((byte)0); // color count
+            bw.Write((byte)0); // reserved
+            bw.Write((ushort)1); // planes
+            bw.Write((ushort)32); // bit count
+            bw.Write((uint)frames[i].Length); // size
+            bw.Write((uint)offset); // offset
+            offset += frames[i].Length;
+        }
+
+        for (int i = 0; i < sizes.Length; i++)
+        {
+            bw.Write(frames[i]);
+        }
+    }
+
+    private static byte[] CreateDibFrame(Bitmap bmp)
+    {
+        int width = bmp.Width;
+        int height = bmp.Height;
+        int maskRowBytes = ((width + 31) / 32) * 4;
+        int maskSize = maskRowBytes * height;
+        int pixelDataSize = width * height * 4;
+        int totalSize = 40 + pixelDataSize + maskSize;
+
+        byte[] dib = new byte[totalSize];
+        using var ms = new MemoryStream(dib);
+        using var bw = new BinaryWriter(ms);
+
+        // BITMAPINFOHEADER
+        bw.Write(40);
+        bw.Write(width);
+        bw.Write(height * 2);
+        bw.Write((ushort)1);
+        bw.Write((ushort)32);
+        bw.Write(0);
+        bw.Write(pixelDataSize + maskSize);
+        bw.Write(0);
+        bw.Write(0);
+        bw.Write(0);
+        bw.Write(0);
+
+        // Pixel data (bottom-to-top BGRA)
+        var data = bmp.LockBits(new Rectangle(0, 0, width, height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+        try
+        {
+            byte[] pixelBytes = new byte[width * 4];
+            for (int y = height - 1; y >= 0; y--)
+            {
+                IntPtr rowPtr = IntPtr.Add(data.Scan0, y * data.Stride);
+                Marshal.Copy(rowPtr, pixelBytes, 0, width * 4);
+                bw.Write(pixelBytes, 0, width * 4);
+            }
+        }
+        finally
+        {
+            bmp.UnlockBits(data);
+        }
+
+        // AND mask (all zeros for 32bpp)
+        byte[] mask = new byte[maskSize];
+        bw.Write(mask);
+
+        return dib;
+    }
+
     private static Icon Create(Color backgroundColor, Color foregroundColor, bool drawUploadBadge)
     {
         using var bmp = new Bitmap(32, 32);
@@ -2644,7 +2773,7 @@ internal static class TrayIconFactory
         }
     }
 
-    private static void FillRoundedRectangle(Graphics g, Brush brush, int x, int y, int width, int height, int radius)
+    private static void FillRoundedRectangle(Graphics g, Brush brush, float x, float y, float width, float height, float radius)
     {
         using var path = new GraphicsPath();
         path.AddArc(x, y, radius, radius, 180, 90);
