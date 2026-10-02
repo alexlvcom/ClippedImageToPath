@@ -11,10 +11,10 @@
     <Product>Clipped Image to Path</Product>
     <Description>Clipped Image to Path</Description>
     <ApplicationIcon>ClippedImageToPath.ico</ApplicationIcon>
-    <Version>1.6.2</Version>
-    <FileVersion>1.6.2.0</FileVersion>
-    <AssemblyVersion>1.6.2.0</AssemblyVersion>
-    <InformationalVersion>1.6.2</InformationalVersion>
+    <Version>1.6.3</Version>
+    <FileVersion>1.6.3.0</FileVersion>
+    <AssemblyVersion>1.6.3.0</AssemblyVersion>
+    <InformationalVersion>1.6.3</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
   <ItemGroup>

@@ -104,6 +104,13 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
             Visible = true,
             ContextMenuStrip = BuildMenu(),
         };
+        _notifyIcon.MouseDoubleClick += (_, e) =>
+        {
+            if (e.Button == MouseButtons.Left)
+            {
+                ToggleRemoteUpload();
+            }
+        };
 
         _deferredProcessTimer = new System.Windows.Forms.Timer
         {
@@ -192,7 +199,11 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         {
             CheckOnClick = false,
         };
-        _remoteUploadStatusMenuItem.Click += (_, _) => ToggleRemoteUpload();
+        _remoteUploadStatusMenuItem.Click += (_, _) =>
+        {
+            _suppressMenuCloseOnce = true;
+            ToggleRemoteUpload();
+        };
         UpdateRemoteUploadStatusMenuItem();
         menu.Items.Add(_remoteUploadStatusMenuItem);
 
@@ -1303,10 +1314,21 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
     {
         _settings.RemoteUploadEnabled = !_settings.RemoteUploadEnabled;
         _settings.Save();
-        _suppressMenuCloseOnce = true;
         RefreshIdleTrayIcon();
         RebuildActiveServerMenu();
         Log($"remote upload {(_settings.RemoteUploadEnabled ? "enabled" : "disabled")}");
+
+        if (_settings.RemoteUploadEnabled)
+        {
+            var active = _settings.GetActiveServer();
+            _notifyIcon.ShowBalloonTip(
+                3000,
+                "Remote upload enabled",
+                active is null
+                    ? "Remote upload is enabled, but no server is selected."
+                    : $"Remote upload to {active.Name} is enabled.",
+                ToolTipIcon.Info);
+        }
     }
 
     private void UpdateRemoteUploadReminderTimer()

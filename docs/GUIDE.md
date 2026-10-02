@@ -65,6 +65,9 @@ Compare it against the hash on that version's
 
 ## The tray menu
 
+Double-click the tray icon to turn remote upload on or off without opening the menu.
+Turning it on from the tray shows a notification naming the server uploads will go to.
+
 | Item | Behaviour |
 |---|---|
 | **Enable Remote Upload** | Checkable; turns remote upload on or off. The menu stays open so you can see the checkbox change |

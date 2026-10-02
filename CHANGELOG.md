@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.6.3 - 2026-10-02
+
+- Double-click the tray icon to turn remote upload on or off.
+- Show a notification naming the active server when remote upload is turned on from the tray.
+
 ## 1.6.2 - 2026-09-29
 
 - Add an application icon to the executable so it displays properly in the Start menu, Windows Search, Taskbar, and File Explorer.
