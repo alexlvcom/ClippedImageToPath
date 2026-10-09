@@ -55,7 +55,7 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
 
     // State
     private DateTime _lastHandledUtc = DateTime.MinValue;
-    private string? _lastImageSha256;
+    private const int RecentSavedImageLimit = 100;
     private bool _isHandling;
     private int _deferredAttemptsRemaining;
 
@@ -81,6 +81,8 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
     private string? _activeClipboardImageSha256;
     private uint _activeClipboardSequence;
     private uint _temporaryPathSequence;
+    private readonly Dictionary<string, (string QuotedPath, string FilePath)> _recentSavedImages = new(StringComparer.Ordinal);
+    private readonly Queue<string> _recentSavedImageOrder = new();
     private ToolStripMenuItem? _remoteUploadStatusMenuItem;
     private ToolStripMenuItem? _activeServerMenuItem;
     private bool _suppressMenuCloseOnce;
@@ -1069,7 +1071,7 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
 
             var pngBytes = EncodePng(image);
             var imageHash = ComputeSha256Hex(pngBytes);
-            if (_lastImageSha256 == imageHash || IsRecentOwnInjectedImageHash(imageHash))
+            if (IsRecentOwnInjectedImageHash(imageHash) || TryReuseSavedImage(image, imageHash))
             {
                 return;
             }
@@ -1087,9 +1089,8 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
                 ? ConvertWindowsPathToWsl(filePath)
                 : filePath;
             var quotedPath = QuoteForClipboard(clipboardPath);
+            RememberSavedImage(imageHash, quotedPath, filePath);
             ScheduleClipboardInject(quotedPath, image);
-
-            _lastImageSha256 = imageHash;
 
             CleanupOldFilesIfNeeded(outputDirectory);
             Log($"saved {filePath}");
@@ -1157,7 +1158,7 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
 
             var pngBytes = EncodePng(image);
             var imageHash = ComputeSha256Hex(pngBytes);
-            if (_lastImageSha256 == imageHash || IsRecentOwnInjectedImageHash(imageHash))
+            if (IsRecentOwnInjectedImageHash(imageHash) || TryReuseSavedImage(image, imageHash))
             {
                 return;
             }
@@ -1175,9 +1176,8 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
                 ? ConvertWindowsPathToWsl(filePath)
                 : filePath;
             var quotedPath = QuoteForClipboard(clipboardPath);
+            RememberSavedImage(imageHash, quotedPath, filePath);
             ScheduleClipboardInject(quotedPath, image);
-
-            _lastImageSha256 = imageHash;
             CleanupOldFilesIfNeeded(outputDirectory);
             Log($"saved {filePath}");
             QueueRemoteUploadIfEnabled(filePath);
@@ -1576,26 +1576,24 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
             return;
         }
 
-        if (_activeClipboardImage is null || string.IsNullOrWhiteSpace(_activeClipboardPath))
+        var sequence = NativeMethods.GetClipboardSequenceNumber();
+        if (_temporaryPathSequence != 0 && sequence == _temporaryPathSequence)
         {
             return;
         }
 
-        var sequence = NativeMethods.GetClipboardSequenceNumber();
-        if (sequence != _activeClipboardSequence && sequence != _temporaryPathSequence && !ClipboardContainsActiveImage())
+        var activeIsCurrent = _activeClipboardImage is not null
+            && !string.IsNullOrWhiteSpace(_activeClipboardPath)
+            && sequence == _activeClipboardSequence;
+        if ((!activeIsCurrent && !TryActivateSavedClipboardImage()) || _activeClipboardPath is not { } activePath)
         {
             ClearActiveClipboardPayload();
             return;
         }
 
-        if (sequence == _temporaryPathSequence)
-        {
-            return;
-        }
-
-        _lastInjectedClipboardText = _activeClipboardPath;
+        _lastInjectedClipboardText = activePath;
         _lastInjectedUtc = DateTime.UtcNow;
-        if (!TrySetClipboardText(_activeClipboardPath))
+        if (!TrySetClipboardText(activePath))
         {
             return;
         }
@@ -1618,27 +1616,78 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         _clipboardRestoreTimer.Start();
     }
 
-    private bool ClipboardContainsActiveImage()
+    private void RememberSavedImage(string imageHash, string quotedPath, string filePath)
     {
-        if (string.IsNullOrWhiteSpace(_activeClipboardImageSha256))
+        if (!_recentSavedImages.ContainsKey(imageHash))
+        {
+            _recentSavedImageOrder.Enqueue(imageHash);
+        }
+
+        _recentSavedImages[imageHash] = (quotedPath, filePath);
+        while (_recentSavedImageOrder.Count > RecentSavedImageLimit)
+        {
+            _ = _recentSavedImages.Remove(_recentSavedImageOrder.Dequeue());
+        }
+    }
+
+    private bool TryGetSavedImagePath(string imageHash, out string quotedPath)
+    {
+        quotedPath = string.Empty;
+        if (!_recentSavedImages.TryGetValue(imageHash, out var saved) || !File.Exists(saved.FilePath))
         {
             return false;
         }
 
+        quotedPath = saved.QuotedPath;
+        return true;
+    }
+
+    // An image that was already saved came back to the clipboard (copied again or picked from
+    // clipboard history), so pair it with its existing file instead of saving a duplicate.
+    private bool TryReuseSavedImage(Image image, string imageHash)
+    {
+        if (!TryGetSavedImagePath(imageHash, out var quotedPath))
+        {
+            return false;
+        }
+
+        if (_settings.SmartPasteEnabled && _pasteMonitor is not null)
+        {
+            SetActiveClipboardPayload(quotedPath, image, imageHash);
+        }
+        else
+        {
+            ScheduleClipboardInject(quotedPath, image);
+        }
+
+        return true;
+    }
+
+    private bool TryActivateSavedClipboardImage()
+    {
         using var image = TryGetClipboardImage();
         if (image is null)
         {
             return false;
         }
 
-        var hash = ComputeSha256Hex(EncodePng(image));
-        if (!string.Equals(hash, _activeClipboardImageSha256, StringComparison.Ordinal))
+        var imageHash = ComputeSha256Hex(EncodePng(image));
+        if (!TryGetSavedImagePath(imageHash, out var quotedPath))
         {
             return false;
         }
 
-        _activeClipboardSequence = NativeMethods.GetClipboardSequenceNumber();
+        SetActiveClipboardPayload(quotedPath, image, imageHash);
         return true;
+    }
+
+    private void SetActiveClipboardPayload(string quotedPath, Image image, string imageHash)
+    {
+        _activeClipboardImage?.Dispose();
+        _activeClipboardImage = new Bitmap(image);
+        _activeClipboardPath = quotedPath;
+        _activeClipboardImageSha256 = imageHash;
+        _activeClipboardSequence = NativeMethods.GetClipboardSequenceNumber();
     }
 
     private void RestoreImageClipboardAfterTerminalPaste()

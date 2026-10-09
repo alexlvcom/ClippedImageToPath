@@ -127,6 +127,10 @@ accident; they nudge you to disable it once you no longer need it.
   image clip from your screenshot tool, and the temporary path clip written for a
   terminal paste. To hide the second, add `ClippedImageToPath.exe` to the
   manager's ignore-app list.
+- With path paste turned on, the path is never added to the clipboard on its own; a
+  path entry appears in clipboard history only after you press `Shift+Insert`.
+- Copying a screenshot that was already saved again, or picking it from clipboard
+  history, reuses its existing file, so `Shift+Insert` pastes the original path.
 - `Shift+Insert` always requests the saved path, so it also works in terminals
   hosted inside editors and other applications.
 

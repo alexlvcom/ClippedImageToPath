@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.6.4 - 2026-10-09
+
+- Paste the saved path with `Shift+Insert` again after copying a screenshot that was already saved,
+  or picking it from clipboard history, instead of pasting nothing.
+
 ## 1.6.3 - 2026-10-02
 
 - Double-click the tray icon to turn remote upload on or off.
