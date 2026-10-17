@@ -1,6 +1,6 @@
 # Clipped Image to Path — development
 
-Requires the .NET 8 SDK. Nothing else.
+Requires Windows, the .NET 8 SDK, and Inno Setup 6.7.3 to build the installer.
 
 ## Build
 
@@ -8,14 +8,29 @@ Requires the .NET 8 SDK. Nothing else.
 dotnet build -c Release
 ```
 
-## Publish
+## Build the installer
+
+```powershell
+./scripts/build-installer.ps1
+```
+
+Output: `dist\ClippedImageToPath-Setup.exe` and `dist\SHA256SUMS.txt`.
+The script reads the version from the project file and publishes a self-contained
+Windows x64 app before compiling the Inno Setup installer. Pass `-IsccPath` if
+Inno Setup is installed outside its default location.
+
+Push a matching version tag (for example `v1.7.0`) to build and publish a GitHub
+release with only the installer and checksum as download assets. Manual workflow
+runs build a downloadable artifact without publishing a release.
+
+## Publish the app without packaging
 
 ```powershell
 dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish
 ```
 
 Output: `publish\ClippedImageToPath.exe` — the same single-file, self-contained
-Windows x64 executable the releases ship.
+Windows x64 executable used inside the installer.
 
 ## Project layout
 
@@ -25,6 +40,18 @@ ClippedImageToPath.csproj   project metadata and version
 ClippedImageToPath.ico      multi-resolution application icon
 CHANGELOG.md                user-visible change history
 ```
+
+## Update checks
+
+`UpdateService.cs` reads the latest stable GitHub release and verifies installer
+downloads using SHA-256. The tray context checks at startup and daily by default. `UpdateSchedule.cs`
+handles the saved hourly/daily/weekly/calendar-monthly/never setting.
+
+```powershell
+dotnet run --project tests/Updater.Tests.csproj -c Release
+```
+
+Tests use a fake HTTP handler and never launch an installer.
 
 ## Dependencies
 

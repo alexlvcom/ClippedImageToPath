@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.7.0 - 2026-10-17
+
+- Organize Settings into compact Saved images, Clipboard, Remote upload, and Updates tabs without scrolling. Keep reminder controls from overlapping.
+- Move Open output folder from the tray menu to the Saved images tab beside the folder selector.
+
+- Check GitHub for updates at startup and once a day by default. Choose hourly, daily, weekly, monthly, or never in Settings. Offer Update or Later, verify the downloaded installer, and launch setup after approval.
+- Add Check for updates inside Settings beside the update frequency selector.
+- Show the current app version in the Settings header and update check message. Keep the small result popup title to the app name.
+
+- Distribute a Windows installer instead of the standalone app executable.
+- Add standard installation folders, Start menu shortcuts, optional desktop and sign-in shortcuts, and Windows uninstall support.
+- Keep existing settings when upgrading or uninstalling.
+- Show the running executable's full path in About, with selectable text for copying, and display the app icon beside its name.
+- Exit the running app automatically during setup and uninstall, without asking the user to close it. Restart it after upgrading.
+- Label the installer autostart option "Start with Windows".
+
 ## 1.6.4 - 2026-10-09
 
 - Paste the saved path with `Shift+Insert` again after copying a screenshot that was already saved,

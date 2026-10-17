@@ -12,10 +12,23 @@
 
 ## Install and first run
 
-Download **[ClippedImageToPath.exe](https://github.com/alexlvcom/ClippedImageToPath/releases/latest/download/ClippedImageToPath.exe)**
+Download **[ClippedImageToPath-Setup.exe](https://github.com/alexlvcom/ClippedImageToPath/releases/latest/download/ClippedImageToPath-Setup.exe)**
 from the [releases page](https://github.com/alexlvcom/ClippedImageToPath/releases/latest).
-It is a single self-contained executable — no .NET runtime install needed. Just
-download and double-click; it starts in the system tray.
+Run the installer. No .NET runtime install is needed. The default installation
+folder is `%LOCALAPPDATA%\Programs\Clipped Image to Path` for your account.
+This does not require administrator approval. You can choose an all-users install
+in Program Files instead, which requires administrator approval.
+
+The installer adds a Start menu shortcut. Desktop and **Start with Windows** shortcuts are
+optional. Start the app from the Start menu; it runs in the system tray.
+Setup closes the running app automatically before upgrading and restarts the
+installed copy afterward. If you used an older portable EXE,
+stop that copy and remove old shortcuts. Your existing settings in
+`%APPDATA%\ClippedImageToPath` stay available.
+
+Uninstall through Windows Settings → Apps. The uninstaller exits the app automatically.
+Uninstalling keeps your settings and
+saved images.
 
 ### Windows SmartScreen
 
@@ -29,14 +42,32 @@ and build it yourself.
 
 ### Verifying the download
 
-Each release lists the SHA-256 of the exe:
+Each release lists the SHA-256 of the installer in `SHA256SUMS.txt`:
 
 ```powershell
-Get-FileHash .\ClippedImageToPath.exe -Algorithm SHA256
+Get-FileHash .\ClippedImageToPath-Setup.exe -Algorithm SHA256
 ```
 
 Compare it against the hash on that version's
 [release page](https://github.com/alexlvcom/ClippedImageToPath/releases/latest).
+
+## Updates
+
+The app checks for a newer stable GitHub release immediately on startup, then
+once a day by default. In Settings → **Check for updates**, choose **Once an hour**,
+**Once a day (default)**, **Once a week**, **Once a month**, or **Never**. Monthly
+means the same date next month (or its last day). Never disables startup and
+scheduled checks; manual checks remain available. Saving the setting applies the
+new interval immediately, with the next scheduled check one interval after saving. An **Update** / **Later** dialog appears when a newer
+installer is available. **Update** downloads the installer, checks its SHA-256,
+and opens setup. Nothing installs without your approval. Setup closes the running
+app and restarts the installed copy after the upgrade.
+
+**Later** suppresses repeat prompts for that version until you restart the app.
+The Settings button **Check for updates** checks immediately and can reopen a dismissed
+update. Background network failures stay quiet; a manual check shows errors.
+Drafts, prereleases, and older releases that only contain a portable EXE are ignored.
+Downloaded installers are kept under `%LOCALAPPDATA%\ClippedImageToPath\Updates`.
 
 ## What it does
 
@@ -72,12 +103,15 @@ Turning it on from the tray shows a notification naming the server uploads will 
 |---|---|
 | **Enable Remote Upload** | Checkable; turns remote upload on or off. The menu stays open so you can see the checkbox change |
 | **Active server** | Which server profile uploads use. Disabled while remote upload is off |
-| **Open output folder** | |
 | **Settings** | |
-| **About** | Name, version, output folder, build date, copyright |
+| **About** | Name, version, build date, selectable running EXE path, build summary, copyright |
 | **Exit** | |
 
 ## Settings
+
+Settings uses compact **Saved images**, **Clipboard**, **Remote upload**, and
+**Updates** tabs without scrolling. Save and Cancel stay in the footer.
+**Open output folder** sits beside Browse in Saved images and opens the selected folder.
 
 ![Settings dialog](../ClippedImageToPath-Config.png)
 

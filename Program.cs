@@ -72,6 +72,14 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
     private readonly System.Windows.Forms.Timer _uploadStatusTimer;
     private readonly System.Windows.Forms.Timer _remoteUploadReminderTimer;
     private readonly GlobalPasteMonitor? _pasteMonitor;
+    private readonly UpdateService _updates = new();
+    private readonly CancellationTokenSource _updateCancellation = new();
+    private readonly System.Windows.Forms.Timer _updateTimer;
+    private DateTime _nextUpdateCheckUtc;
+    private bool _checkingUpdate;
+    private bool _exiting;
+    private Version? _lastOfferedUpdate;
+
     private string? _pendingClipboardText;
     private Bitmap? _pendingClipboardImage;
     private string? _lastInjectedClipboardText;
@@ -145,7 +153,7 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         _remoteUploadReminderTimer.Tick += (_, _) => ShowRemoteUploadReminder();
         UpdateRemoteUploadReminderTimer();
 
-        _listenerWindow = new ClipboardListenerWindow(HandleClipboardUpdate);
+        _listenerWindow = new ClipboardListenerWindow(HandleClipboardUpdate, ExitThread);
         try
         {
             _pasteMonitor = new GlobalPasteMonitor(HandlePasteShortcut, HandlePasteShortcutReleased);
@@ -155,6 +163,17 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
             _pasteMonitor = null;
             Log($"smart paste unavailable: {ex.Message}");
         }
+        // Poll the due time locally: a calendar month exceeds a WinForms timer's maximum interval.
+        _updateTimer = new System.Windows.Forms.Timer { Interval = 60 * 1000 };
+        _updateTimer.Tick += async (_, _) =>
+        {
+            if (DateTime.UtcNow < _nextUpdateCheckUtc || _checkingUpdate) return;
+            _nextUpdateCheckUtc = UpdateSchedule.NextCheck(DateTime.UtcNow, _settings.UpdateCheckFrequency);
+            await CheckForUpdatesAsync(false);
+        };
+        ApplyUpdateSchedule();
+        // Start after construction, as soon as the UI message loop runs.
+        _uiContext.Post(async _ => await CheckForUpdatesAsync(false), null);
         Log("started");
     }
 
@@ -169,6 +188,11 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
     {
         if (disposing)
         {
+            _exiting = true;
+            _updateTimer.Stop();
+            _updateTimer.Dispose();
+            _updateCancellation.Cancel();
+            _updates.Dispose();
             _listenerWindow.Dispose();
             _deferredProcessTimer.Stop();
             _deferredProcessTimer.Dispose();
@@ -225,40 +249,109 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         };
 
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Open output folder", null, (_, _) =>
-        {
-            try
-            {
-                EnsureOutputDirectoryExists();
-                _ = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = _settings.OutputDirectory,
-                    UseShellExecute = true,
-                });
-            }
-            catch
-            {
-                // Ignore.
-            }
-        });
         menu.Items.Add("Settings", null, (_, _) => ShowSettingsDialog());
         menu.Items.Add("About", null, (_, _) => ShowAboutDialog());
         menu.Items.Add("Exit", null, (_, _) => ExitThread());
         return menu;
     }
 
+    private void ApplyUpdateSchedule()
+    {
+        _settings.UpdateCheckFrequency = UpdateSchedule.Normalize(_settings.UpdateCheckFrequency);
+        _updateTimer.Stop();
+        _nextUpdateCheckUtc = UpdateSchedule.NextCheck(DateTime.UtcNow, _settings.UpdateCheckFrequency);
+        if (_settings.UpdateCheckFrequency != UpdateCheckFrequency.Never) _updateTimer.Start();
+    }
+
+    private async Task CheckForUpdatesAsync(bool manual)
+    {
+        if (_checkingUpdate || _exiting || (!manual && _settings.UpdateCheckFrequency == UpdateCheckFrequency.Never)) return;
+        _checkingUpdate = true;
+        try
+        {
+            var update = await _updates.CheckAsync(Version.Parse(GetDisplayVersion()), _updateCancellation.Token);
+            if (_exiting) return;
+            if (update is null)
+            {
+                if (manual) MessageBox.Show($"You are running version {GetDisplayVersion()}.\n\nNo newer installer version is available.", AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            if (!manual && _lastOfferedUpdate == update.Version) return;
+            _lastOfferedUpdate = update.Version;
+            ShowUpdateDialog(update);
+        }
+        catch (OperationCanceledException) when (_exiting) { }
+        catch (Exception ex)
+        {
+            if (_exiting) return;
+            Log($"update check failed: {ex.Message}");
+            if (manual) MessageBox.Show($"Could not check for updates. Please try again later.\n\n{ex.Message}", AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+        finally { _checkingUpdate = false; }
+    }
+
+    private void ShowUpdateDialog(AppUpdate update)
+    {
+        using var dialog = new Form
+        {
+            Text = $"Update {AppName} — v{GetDisplayVersion()}", Icon = _trayIcon,
+            StartPosition = FormStartPosition.CenterScreen,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            MaximizeBox = false, MinimizeBox = false,
+            ClientSize = new Size(470, 200),
+        };
+        var message = new Label
+        {
+            Text = $"Version {update.Version} is available. You have {GetDisplayVersion()}.\n\nUpdate will download and open the installer. Setup will close the app and restart it after updating.",
+            Location = new Point(18, 18), Size = new Size(434, 115),
+        };
+        var install = new Button { Text = "Update", Location = new Point(268, 152), Size = new Size(88, 30) };
+        var later = new Button { Text = "Later", Location = new Point(364, 152), Size = new Size(88, 30), DialogResult = DialogResult.Cancel };
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_updateCancellation.Token);
+        cancellation.CancelAfter(TimeSpan.FromMinutes(10));
+        dialog.FormClosing += (_, _) => cancellation.Cancel();
+        install.Click += async (_, _) =>
+        {
+            install.Enabled = false;
+            message.Text = "Downloading and verifying the installer…";
+            try
+            {
+                var cache = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ClippedImageToPath", "Updates");
+                var installer = await _updates.DownloadAsync(update, cache, cancellation.Token);
+                if (_exiting || dialog.IsDisposed) return;
+                _ = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = installer, UseShellExecute = true,
+                }) ?? throw new InvalidOperationException("Windows could not open the installer.");
+                dialog.Close();
+                // Stay running until setup requests exit, so cancelling setup leaves the app usable.
+            }
+            catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+            catch (Exception ex)
+            {
+                if (_exiting || dialog.IsDisposed) return;
+                message.Text = $"Update failed. Please try again.\n\n{ex.Message}";
+                install.Enabled = true;
+            }
+        };
+        dialog.Controls.AddRange(new Control[] { message, install, later });
+        dialog.AcceptButton = install;
+        dialog.CancelButton = later;
+        _ = dialog.ShowDialog();
+    }
+
     private void ShowSettingsDialog()
     {
         using var settingsForm = new Form
         {
-            Text = $"{AppName} Settings",
+            Text = $"{AppName} Settings — v{GetDisplayVersion()}",
             Icon = _trayIcon,
             StartPosition = FormStartPosition.CenterScreen,
             FormBorderStyle = FormBorderStyle.FixedDialog,
             MaximizeBox = false,
             MinimizeBox = false,
             ShowInTaskbar = false,
-            ClientSize = new Size(620, 315),
+            ClientSize = new Size(680, 390),
         };
 
         using var settingsToolTip = new ToolTip
@@ -303,6 +396,26 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
             }
         };
 
+        var openFolderButton = new Button { Text = "Open output folder", Size = new Size(145, 30) };
+        openFolderButton.Click += (_, _) =>
+        {
+            try
+            {
+                var selectedPath = Path.GetFullPath(folderText.Text.Trim());
+                if (!Directory.Exists(selectedPath))
+                    throw new DirectoryNotFoundException("This folder does not exist. Save settings to create it first.");
+                _ = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = selectedPath, UseShellExecute = true,
+                });
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(settingsForm, $"Could not open the output folder.\n\n{ex.Message}", AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        };
+        settingsToolTip.SetToolTip(openFolderButton, "Open the folder currently selected above in File Explorer.");
+
         var wslCheck = new CheckBox
         {
             Text = "Convert clipboard path to WSL format (/mnt/c/...)",
@@ -330,7 +443,7 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
 
         var uploadReminderCheck = new CheckBox
         {
-            Text = "Show remote upload notification every",
+            Text = "Remind me every",
             AutoSize = true,
             Location = new Point(16, 180),
             Checked = _settings.RemoteUploadReminderEnabled,
@@ -372,11 +485,40 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         };
         sshButton.Click += (_, _) => ShowRemoteServersDialog(settingsForm);
 
+        var updateLabel = new Label
+        {
+            Text = "Check for updates:", AutoSize = true, Location = new Point(16, 270),
+        };
+        var updateFrequency = new ComboBox
+        {
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            Location = new Point(180, 266), Size = new Size(200, 26),
+            AccessibleName = "Check for updates",
+        };
+        var frequencies = new[] { UpdateCheckFrequency.Hourly, UpdateCheckFrequency.Daily, UpdateCheckFrequency.Weekly, UpdateCheckFrequency.Monthly, UpdateCheckFrequency.Never };
+        updateFrequency.Items.AddRange(new object[] { "Once an hour", "Once a day (default)", "Once a week", "Once a month", "Never" });
+        updateFrequency.SelectedIndex = Array.IndexOf(frequencies, UpdateSchedule.Normalize(_settings.UpdateCheckFrequency));
+        const string updateHelp = "Check at startup, then at this interval. Never disables all automatic checks. Use Check for updates here to check manually.";
+        settingsToolTip.SetToolTip(updateLabel, updateHelp);
+        settingsToolTip.SetToolTip(updateFrequency, updateHelp);
+
+        var checkUpdatesButton = new Button
+        {
+            Text = "Check for updates", Location = new Point(400, 264), Size = new Size(205, 30),
+        };
+        checkUpdatesButton.Click += async (_, _) =>
+        {
+            checkUpdatesButton.Enabled = false;
+            try { await CheckForUpdatesAsync(true); }
+            finally { if (!checkUpdatesButton.IsDisposed) checkUpdatesButton.Enabled = true; }
+        };
+        settingsToolTip.SetToolTip(checkUpdatesButton, "Check GitHub now, even when automatic checks are set to Never.");
+
         var saveButton = new Button
         {
             Text = "Save",
             DialogResult = DialogResult.OK,
-            Location = new Point(440, 265),
+            Location = new Point(440, 325),
             Size = new Size(80, 30),
         };
 
@@ -384,7 +526,7 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         {
             Text = "Cancel",
             DialogResult = DialogResult.Cancel,
-            Location = new Point(525, 265),
+            Location = new Point(525, 325),
             Size = new Size(80, 30),
         };
 
@@ -402,18 +544,75 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         settingsToolTip.SetToolTip(saveButton, "Save these settings and apply them immediately.");
         settingsToolTip.SetToolTip(cancelButton, "Close without saving changes.");
 
-        settingsForm.Controls.Add(folderLabel);
-        settingsForm.Controls.Add(folderText);
-        settingsForm.Controls.Add(browseButton);
-        settingsForm.Controls.Add(wslCheck);
-        settingsForm.Controls.Add(smartPasteCheck);
-        settingsForm.Controls.Add(uploadCheck);
-        settingsForm.Controls.Add(uploadReminderCheck);
-        settingsForm.Controls.Add(uploadReminderMinutes);
-        settingsForm.Controls.Add(uploadReminderMinutesLabel);
-        settingsForm.Controls.Add(sshButton);
-        settingsForm.Controls.Add(saveButton);
-        settingsForm.Controls.Add(cancelButton);
+        // Let native layout measure each row so labels cannot collide with their inputs.
+        FlowLayoutPanel Row(params Control[] controls)
+        {
+            var row = new FlowLayoutPanel
+            {
+                AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                WrapContents = false, Margin = new Padding(0, 0, 0, 6),
+            };
+            foreach (var control in controls)
+            {
+                control.Location = Point.Empty;
+                control.Margin = control is Label ? new Padding(0, 6, 10, 0) : new Padding(0, 0, 10, 0);
+                row.Controls.Add(control);
+            }
+            return row;
+        }
+
+        TabPage Section(string title, string description, params Control[] controls)
+        {
+            var content = new FlowLayoutPanel
+            {
+                AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                FlowDirection = FlowDirection.TopDown, WrapContents = false,
+                Dock = DockStyle.Top, Margin = Padding.Empty,
+            };
+            content.Controls.Add(new Label
+            {
+                Text = description, AutoSize = true, MaximumSize = new Size(570, 0),
+                Margin = new Padding(0, 0, 0, 20), ForeColor = SystemColors.GrayText,
+            });
+            foreach (var control in controls)
+            {
+                control.Location = Point.Empty;
+                control.Margin = new Padding(0, 0, 0, 14);
+                content.Controls.Add(control);
+            }
+            var page = new TabPage(title)
+            {
+                UseVisualStyleBackColor = true,
+                Padding = new Padding(22, 20, 22, 12),
+            };
+            page.Controls.Add(content);
+            return page;
+        }
+
+        folderText.Width = 315;
+        browseButton.Size = new Size(80, 30);
+        uploadReminderMinutes.Width = 80;
+        updateFrequency.Width = 200;
+        checkUpdatesButton.Width = 170;
+        var sections = new TabControl { Dock = DockStyle.Fill };
+        sections.TabPages.Add(Section("Saved images", "Choose where copied images are saved as PNG files.",
+            folderLabel, Row(folderText, browseButton, openFolderButton)));
+        sections.TabPages.Add(Section("Clipboard", "Choose how saved image paths are pasted.", wslCheck, smartPasteCheck));
+        sections.TabPages.Add(Section("Remote upload", "Upload saved images to your selected remote server.", uploadCheck,
+            Row(uploadReminderCheck, uploadReminderMinutes, uploadReminderMinutesLabel), sshButton));
+        sections.TabPages.Add(Section("Updates", "Choose when the app checks GitHub for newer releases.",
+            updateLabel, Row(updateFrequency, checkUpdatesButton)));
+        var contentArea = new Panel { Dock = DockStyle.Fill, Padding = new Padding(16, 12, 16, 0) };
+        contentArea.Controls.Add(sections);
+        var footer = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Bottom, Height = 60, FlowDirection = FlowDirection.RightToLeft,
+            Padding = new Padding(16, 10, 16, 10), WrapContents = false,
+        };
+        footer.Controls.Add(cancelButton);
+        footer.Controls.Add(saveButton);
+        settingsForm.Controls.Add(contentArea);
+        settingsForm.Controls.Add(footer);
         settingsForm.AcceptButton = saveButton;
         settingsForm.CancelButton = cancelButton;
 
@@ -439,7 +638,9 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
             _settings.RemoteUploadEnabled = uploadCheck.Checked;
             _settings.RemoteUploadReminderEnabled = uploadReminderCheck.Checked;
             _settings.RemoteUploadReminderMinutes = Decimal.ToInt32(uploadReminderMinutes.Value);
+            _settings.UpdateCheckFrequency = frequencies[updateFrequency.SelectedIndex];
             _settings.Save();
+            ApplyUpdateSchedule();
             RefreshIdleTrayIcon();
             Log("settings updated");
         }
@@ -945,15 +1146,24 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
             MaximizeBox = false,
             MinimizeBox = false,
             ShowInTaskbar = false,
-            ClientSize = new Size(600, 260),
+            ClientSize = new Size(600, 330),
         };
 
+        using var titleImage = _trayIcon.ToBitmap();
+        var titleIcon = new PictureBox
+        {
+            Image = titleImage,
+            SizeMode = PictureBoxSizeMode.Zoom,
+            Location = new Point(18, 14),
+            Size = new Size(32, 32),
+            TabStop = false,
+        };
         var title = new Label
         {
             AutoSize = false,
             Font = new Font(SystemFonts.MessageBoxFont ?? Control.DefaultFont, FontStyle.Bold),
-            Location = new Point(18, 18),
-            Size = new Size(about.ClientSize.Width - 36, 24),
+            Location = new Point(60, 18),
+            Size = new Size(about.ClientSize.Width - 78, 24),
             Text = AppName,
         };
 
@@ -963,7 +1173,7 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
             AutoSize = true,
             ColumnCount = 2,
             Location = new Point(18, 54),
-            RowCount = 4,
+            RowCount = 5,
             Width = about.ClientSize.Width - 36,
         };
         details.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 125));
@@ -971,8 +1181,9 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
 
         AddAboutRow(details, 0, "Version", version);
         AddAboutRow(details, 1, "Build date", File.GetLastWriteTime(Application.ExecutablePath).ToString("yyyy-MM-dd HH:mm:ss"));
-        AddAboutRow(details, 2, "Build summary", "Application icon for the executable, Start menu, and dialogs.");
-        AddAboutRow(details, 3, "Copyright", $"(c) {DateTime.Now.Year} Alex LV");
+        AddAboutRow(details, 2, "EXE path", Application.ExecutablePath, selectable: true);
+        AddAboutRow(details, 3, "Build summary", "Windows installer and executable location in About.");
+        AddAboutRow(details, 4, "Copyright", $"(c) {DateTime.Now.Year} Alex LV");
 
         var close = new Button
         {
@@ -983,6 +1194,7 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
             Location = new Point(about.ClientSize.Width - 96, about.ClientSize.Height - 44),
         };
 
+        about.Controls.Add(titleIcon);
         about.Controls.Add(title);
         about.Controls.Add(details);
         about.Controls.Add(close);
@@ -1002,7 +1214,7 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         return suffixIndex >= 0 ? version[..suffixIndex] : version;
     }
 
-    private static void AddAboutRow(TableLayoutPanel table, int row, string label, string value)
+    private static void AddAboutRow(TableLayoutPanel table, int row, string label, string value, bool selectable = false)
     {
         table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
@@ -1013,6 +1225,23 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
             Margin = new Padding(0, 0, 12, 8),
             Text = $"{label}:",
         }, 0, row);
+
+        if (selectable)
+        {
+            table.Controls.Add(new TextBox
+            {
+                ReadOnly = true,
+                Multiline = true,
+                WordWrap = true,
+                ScrollBars = ScrollBars.Vertical,
+                Anchor = AnchorStyles.Left | AnchorStyles.Right,
+                Height = 60,
+                Margin = new Padding(0, 0, 0, 8),
+                Text = value,
+                AccessibleName = label,
+            }, 1, row);
+            return;
+        }
 
         table.Controls.Add(new Label
         {
@@ -1982,6 +2211,8 @@ internal sealed class AppSettings
         Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
         "ClipboardImages");
 
+    public UpdateCheckFrequency UpdateCheckFrequency { get; set; } = UpdateCheckFrequency.Daily;
+
     public bool ConvertToWslPath { get; set; }
 
     public bool SmartPasteEnabled { get; set; } = true;
@@ -2545,10 +2776,12 @@ internal static class RemoteUploader
 internal sealed class ClipboardListenerWindow : NativeWindow, IDisposable
 {
     private readonly Action _onClipboardUpdate;
+    private readonly Action _onExit;
 
-    internal ClipboardListenerWindow(Action onClipboardUpdate)
+    internal ClipboardListenerWindow(Action onClipboardUpdate, Action onExit)
     {
         _onClipboardUpdate = onClipboardUpdate;
+        _onExit = onExit;
 
         CreateHandle(new CreateParams
         {
@@ -2568,6 +2801,14 @@ internal sealed class ClipboardListenerWindow : NativeWindow, IDisposable
 
     protected override void WndProc(ref Message m)
     {
+        // Let the uninstaller use the same clean shutdown as the tray's Exit command.
+        if (m.Msg == 0x0010) // WM_CLOSE
+        {
+            _onExit();
+            m.Result = IntPtr.Zero;
+            return;
+        }
+
         if (m.Msg == NativeMethods.WM_CLIPBOARDUPDATE)
         {
             _onClipboardUpdate();
