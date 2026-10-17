@@ -1199,6 +1199,8 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         about.Controls.Add(details);
         about.Controls.Add(close);
         about.AcceptButton = close;
+        // Keep initial focus off the read-only path so Windows does not select it all.
+        about.ActiveControl = close;
 
         _ = about.ShowDialog();
     }

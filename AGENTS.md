@@ -32,3 +32,8 @@
 - Group related controls into Saved images, Clipboard, Remote upload, and Updates tabs. Keep the compact window free of scrolling and Save/Cancel in a separate footer.
 - Open output folder belongs beside the folder selector in Saved images, not in the tray menu. It opens the path currently shown in the selector.
 - Use native layout containers to prevent labels and inputs from overlapping. Preserve tooltips, dependencies, saved values, and keyboard navigation.
+
+## About focus
+
+- Show the app icon before the app name. Keep the EXE path selectable for copying, but focus Close initially so the path is not preselected.
+- Keep shared UI conventions documented in `/home/standfest/sites/alexlv.com/docs/windows-apps-common-standards.md` and its published copy when changing them.

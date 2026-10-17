@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.7.1 - 2026-10-17
+
+- Open About with focus on Close instead of preselecting the executable path. The path remains selectable for copying.
+
 ## 1.7.0 - 2026-10-17
 
 - Organize Settings into compact Saved images, Clipboard, Remote upload, and Updates tabs without scrolling. Keep reminder controls from overlapping.
