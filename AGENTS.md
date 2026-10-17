@@ -37,3 +37,7 @@
 
 - Show the app icon before the app name. Keep the EXE path selectable for copying, but focus Close initially so the path is not preselected.
 - Keep shared UI conventions documented in `/home/standfest/sites/alexlv.com/docs/windows-apps-common-standards.md` and its published copy when changing them.
+
+## Automated release identity
+
+- Keep tag-driven GitHub Actions release publishing with `GITHUB_TOKEN`. GitHub showing `github-actions` as release author is expected and accepted by the owner. Do not add a personal token or manual publishing only to change this label. Commit authorship is separate.
