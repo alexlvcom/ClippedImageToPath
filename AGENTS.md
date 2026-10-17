@@ -49,3 +49,5 @@
 - Keep all changes and review fixes in the current release task under the one intended release version. Do not create patch releases automatically during ongoing review.
 - The owner explicitly requested consolidating all 2026-10-17 changes into 1.7.0, removing the published 1.7.1 release/tag, and not creating 1.7.2. Update the 1.7.0 installer, notes, and tag to the consolidated source.
 - Respect an explicit consolidation request even if CI has already published an interim release. Otherwise preserve published releases and clarify the intended next release before creating an unrequested patch release.
+
+- Order changelog and release notes by user impact. Use Main changes for the major features, followed by Other updates for smaller UI and wording refinements. Do not lead with cosmetic review fixes.
