@@ -294,7 +294,7 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
     {
         using var dialog = new Form
         {
-            Text = $"Update {AppName} — v{GetDisplayVersion()}", Icon = _trayIcon,
+            Text = $"Update {AppName} (v{GetDisplayVersion()})", Icon = _trayIcon,
             StartPosition = FormStartPosition.CenterScreen,
             FormBorderStyle = FormBorderStyle.FixedDialog,
             MaximizeBox = false, MinimizeBox = false,
@@ -344,7 +344,7 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
     {
         using var settingsForm = new Form
         {
-            Text = $"{AppName} Settings — v{GetDisplayVersion()}",
+            Text = $"{AppName} Settings (v{GetDisplayVersion()})",
             Icon = _trayIcon,
             StartPosition = FormStartPosition.CenterScreen,
             FormBorderStyle = FormBorderStyle.FixedDialog,

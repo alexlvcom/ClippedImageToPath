@@ -1,18 +1,14 @@
 # Changelog
 
-## 1.7.1 - 2026-10-17
-
-- Open About with focus on Close instead of preselecting the executable path. The path remains selectable for copying.
-
 ## 1.7.0 - 2026-10-17
 
+- Put the version in parentheses in Settings and update window titles.
+- Open About with focus on Close instead of preselecting the executable path. The path remains selectable for copying.
 - Organize Settings into compact Saved images, Clipboard, Remote upload, and Updates tabs without scrolling. Keep reminder controls from overlapping.
 - Move Open output folder from the tray menu to the Saved images tab beside the folder selector.
-
 - Check GitHub for updates at startup and once a day by default. Choose hourly, daily, weekly, monthly, or never in Settings. Offer Update or Later, verify the downloaded installer, and launch setup after approval.
 - Add Check for updates inside Settings beside the update frequency selector.
 - Show the current app version in the Settings header and update check message. Keep the small result popup title to the app name.
-
 - Distribute a Windows installer instead of the standalone app executable.
 - Add standard installation folders, Start menu shortcuts, optional desktop and sign-in shortcuts, and Windows uninstall support.
 - Keep existing settings when upgrading or uninstalling.

@@ -41,3 +41,11 @@
 ## Automated release identity
 
 - Keep tag-driven GitHub Actions release publishing with `GITHUB_TOKEN`. GitHub showing `github-actions` as release author is expected and accepted by the owner. Do not add a personal token or manual publishing only to change this label. Commit authorship is separate.
+
+- Put versions in window titles in parentheses, e.g. `Clipped Image to Path Settings (v1.7.0)`, rather than after a dash. Small update-result popups keep the version only in their message.
+
+## Release grouping
+
+- Keep all changes and review fixes in the current release task under the one intended release version. Do not create patch releases automatically during ongoing review.
+- The owner explicitly requested consolidating all 2026-10-17 changes into 1.7.0, removing the published 1.7.1 release/tag, and not creating 1.7.2. Update the 1.7.0 installer, notes, and tag to the consolidated source.
+- Respect an explicit consolidation request even if CI has already published an interim release. Otherwise preserve published releases and clarify the intended next release before creating an unrequested patch release.
