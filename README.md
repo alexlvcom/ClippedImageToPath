@@ -72,6 +72,8 @@ When a newer installer release is available, choose **Update** to download it,
 verify its SHA-256, and open setup. Setup closes the app and restarts it after
 upgrading. **Later** dismisses that version for the current session.
 Use **Check for updates** in Settings → **Updates** to check or reopen the offer at any time.
+The download timeout starts when you click **Update**. If it expires, the dialog
+shows an error and lets you click **Update** again to retry.
 
 ## Documentation
 

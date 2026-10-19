@@ -308,16 +308,17 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         var install = new Button { Text = "Update", Location = new Point(268, 152), Size = new Size(88, 30) };
         var later = new Button { Text = "Later", Location = new Point(364, 152), Size = new Size(88, 30), DialogResult = DialogResult.Cancel };
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_updateCancellation.Token);
-        cancellation.CancelAfter(TimeSpan.FromMinutes(10));
         dialog.FormClosing += (_, _) => cancellation.Cancel();
         install.Click += async (_, _) =>
         {
             install.Enabled = false;
             message.Text = "Downloading and verifying the installer…";
+            using var attempt = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token);
+            attempt.CancelAfter(TimeSpan.FromMinutes(10));
             try
             {
                 var cache = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ClippedImageToPath", "Updates");
-                var installer = await _updates.DownloadAsync(update, cache, cancellation.Token);
+                var installer = await _updates.DownloadAsync(update, cache, attempt.Token);
                 if (_exiting || dialog.IsDisposed) return;
                 _ = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
                 {
@@ -327,9 +328,17 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
                 // Stay running until setup requests exit, so cancelling setup leaves the app usable.
             }
             catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+            catch (OperationCanceledException)
+            {
+                if (_exiting || dialog.IsDisposed) return;
+                Log("update download timed out");
+                message.Text = "The download timed out. Check your connection and click Update to try again.";
+                install.Enabled = true;
+            }
             catch (Exception ex)
             {
                 if (_exiting || dialog.IsDisposed) return;
+                Log($"update installation failed: {ex.Message}");
                 message.Text = $"Update failed. Please try again.\n\n{ex.Message}";
                 install.Enabled = true;
             }

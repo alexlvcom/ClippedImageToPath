@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.7.2 - 2026-10-19
+
+- Start the update download timeout when Update is clicked. Report timeouts and allow retrying instead of leaving the download dialog stuck.
+
 ## 1.7.1 - 2026-10-19
 
 - Always show the checked Start Clipped Image to Path option when setup finishes, including upgrades, so the app starts after setup.

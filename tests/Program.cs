@@ -24,6 +24,18 @@ Check(UpdateSchedule.NextCheck(now, UpdateCheckFrequency.Monthly) == new DateTim
 Check(UpdateSchedule.NextCheck(now, UpdateCheckFrequency.Never) == DateTime.MaxValue, "Never disables scheduled checks");
 Check(UpdateSchedule.Normalize((UpdateCheckFrequency)99) == UpdateCheckFrequency.Daily, "invalid saved frequency falls back to daily");
 var current = new Version(1, 7, 0);
+if (args.Contains("--live"))
+{
+    using var live = new UpdateService();
+    var release = await live.CheckAsync(current, default) ?? throw new Exception("No live update available");
+    var liveCache = Path.Combine(Path.GetTempPath(), "clipped-live-update-" + Guid.NewGuid().ToString("N"));
+    try
+    {
+        var installer = await live.DownloadAsync(release, liveCache, default);
+        Check(new FileInfo(installer).Length > 0, $"live GitHub {release.Version} installer downloaded and verified");
+    }
+    finally { if (Directory.Exists(liveCache)) Directory.Delete(liveCache, true); }
+}
 Check(UpdateService.ParseRelease(Release(), current)?.Version == new Version(1, 8, 0), "newer stable release detected");
 Check(UpdateService.ParseRelease(Release("v1.7.0"), current) is null, "same version ignored");
 Check(UpdateService.ParseRelease(Release("v1.6.4"), current) is null, "older release ignored");
