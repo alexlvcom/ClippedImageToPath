@@ -39,21 +39,17 @@ Name: "{autodesktop}\Clipped Image to Path"; Filename: "{app}\ClippedImageToPath
 Name: "{autostartup}\Clipped Image to Path"; Filename: "{app}\ClippedImageToPath.exe"; Tasks: startup
 
 [Run]
-Filename: "{app}\ClippedImageToPath.exe"; Flags: nowait; Check: RestartAfterUpgrade
-Filename: "{app}\ClippedImageToPath.exe"; Description: "Start Clipped Image to Path"; Flags: nowait postinstall skipifsilent; Check: OfferFirstLaunch
+Filename: "{app}\ClippedImageToPath.exe"; Description: "Start Clipped Image to Path"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\ClippedImageToPath.exe"; Flags: nowait; Check: RestartSilently
 
 [Code]
 var
   WasRunning: Boolean;
 
-function RestartAfterUpgrade: Boolean;
+{ Interactive setup always offers the checked Start checkbox; silent setup restarts a previously running app. }
+function RestartSilently: Boolean;
 begin
-  Result := WasRunning;
-end;
-
-function OfferFirstLaunch: Boolean;
-begin
-  Result := not WasRunning;
+  Result := WasRunning and WizardSilent;
 end;
 
 function StopApplication: Boolean;

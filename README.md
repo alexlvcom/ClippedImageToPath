@@ -42,7 +42,7 @@ and run the installer. No .NET runtime is needed. By default it installs in
 You can also choose an all-users install in Program Files.
 Choose **Start with Windows** during setup if you want it to start automatically.
 Start the app from the Start menu; it runs in the system tray.
-When upgrading, setup closes the running app and restarts the installed copy.
+When upgrading, setup closes the running app. Keep **Start Clipped Image to Path** checked on the last page to start the installed copy.
 If you used an older standalone EXE, exit that copy before your first installer upgrade.
 Uninstall it through Windows Settings → Apps. The uninstaller exits the app automatically.
 

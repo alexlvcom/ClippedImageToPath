@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.7.1 - 2026-10-19
+
+- Always show the checked Start Clipped Image to Path option when setup finishes, including upgrades, so the app starts after setup.
+
 ## 1.7.0 - 2026-10-17
 
 ### Main changes
