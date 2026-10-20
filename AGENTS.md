@@ -40,7 +40,7 @@
 
 ## UI and themes
 
-- The tray icon, its menu, the clipboard listener, the paste hook and the message loop stay WinForms (`Program.cs`). Every window and dialog is WPF in `Ui/`, styled by the shared AlexLV Windows UI kit vendored unchanged in `AlexLV.WindowsUi/`. The canonical copy is `C:projectsAlexLV.WindowsUi` (see its README); change it there and copy it to every app.
+- The tray icon, its menu, the clipboard listener, the paste hook and the message loop stay WinForms (`Program.cs`). Every window and dialog is WPF in `Ui/`, styled by the shared AlexLV Windows UI kit vendored unchanged in `AlexLV.WindowsUi/`. The canonical copy is `C:\projects\AlexLV.WindowsUi` (see its README); change it there and copy it to every app.
 - Windows derive from `ThemedWindow` (XAML root `ui:ThemedWindow`) so they never flash light. Use `MessageDialog`, never `MessageBox`. `TrayMenuStyler` themes the tray menu; `StyleActiveServerMenu` applies the same renderer to the Active server submenu.
 - Appearance → Theme offers System (default), Light and Dark. System follows the Windows app mode live. A new theme previews at once; any close without Save restores the saved theme.
 - Accent: `#007850` light, `#5FD3A0` dark (from the icon). Surfaces stay neutral. The approved design is `design/ui-redesign.html`; update it before a visible redesign.

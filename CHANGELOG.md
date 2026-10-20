@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.8.1 - 2026-10-20
+
+### Other updates
+
+- Checked tray menu items, Enable remote upload and the active server, show a theme-colored checkmark instead of a bright blue box.
+
 ## 1.8.0 - 2026-10-20
 
 ### Main changes
