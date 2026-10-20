@@ -7,7 +7,7 @@ everywhere else.
 Windows Terminal cannot paste a bitmap into a CLI tool. Coding agents want a path,
 not a clipboard image. This bridges the two.
 
-![Tray menu](ClippedImageToPath-Tray.jpg)
+![Tray menu](ClippedImageToPath-Tray.png)
 
 ## Why you'd want it
 

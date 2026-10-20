@@ -126,7 +126,7 @@ stays open. Cancel, Esc, or closing the window discards unsaved edits.
 - **Diagnostics** shows the executable, settings, and log paths with Open buttons, and
   **Copy details** copies them with the version for a bug report.
 
-![Settings dialog](../ClippedImageToPath-Config.png)
+![Settings dialog](../ClippedImageToPath-Settings.png)
 
 Hover over any option to see a short description of what it does.
 
