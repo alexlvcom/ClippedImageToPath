@@ -90,8 +90,8 @@ internal partial class SettingsWindow : ThemedWindow
         Frequency.SelectionChanged += (_, _) => OnEdited();
 
         ShowUpdateStatus(draft.LastUpdateCheckUtc is { } checkedAt
-            ? new UpdateStatus(UpdateState.UpToDate, $"{AppInfo.DisplayName} is up to date",
-                $"Version {Changelog.MarketingVersion} · Last checked {checkedAt.ToLocalTime():yyyy-MM-dd HH:mm}")
+            ? new UpdateStatus(UpdateState.UpToDate, UpdateMessages.Latest(Changelog.MarketingVersion),
+                UpdateMessages.LastChecked(checkedAt.ToLocalTime()))
             : new UpdateStatus(UpdateState.NotChecked, "Not checked yet",
                 $"Version {Changelog.MarketingVersion} · Use Check for updates to look now"));
 
@@ -320,6 +320,12 @@ internal partial class SettingsWindow : ThemedWindow
         try
         {
             ShowUpdateStatus(await _host.CheckForUpdates());
+        }
+        catch (Exception ex)
+        {
+            // The card must never stay on "Checking…".
+            ShowUpdateStatus(new UpdateStatus(UpdateState.Failed, "Could not check for updates",
+                $"Version {Changelog.MarketingVersion} · {ex.Message}"));
         }
         finally
         {

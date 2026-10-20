@@ -92,6 +92,7 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
     private readonly System.Windows.Forms.Timer _updateTimer;
     private DateTime _nextUpdateCheckUtc;
     private bool _checkingUpdate;
+    private Task<UpdateStatus>? _runningCheck;
     private bool _exiting;
     private bool _disposed;
     private Version? _lastOfferedUpdate;
@@ -316,11 +317,18 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         if (_settings.UpdateCheckFrequency != UpdateCheckFrequency.Never) _updateTimer.Start();
     }
 
-    /// <summary>Checks GitHub. Manual checks report every outcome; automatic ones only offer an update.</summary>
+    /// <summary>
+    /// Checks GitHub. The result is shown in place in Settings → Updates; only a newer release opens a
+    /// dialog. Background checks stay quiet otherwise.
+    /// </summary>
     private async Task<UpdateStatus> CheckForUpdatesAsync(bool manual)
     {
         var current = Changelog.MarketingVersion;
-        if (_checkingUpdate) return new UpdateStatus(UpdateState.Checking, "Checking for updates…", "A check is already running");
+        // A manual click during a background check reports that check's result instead of "Checking…".
+        if (_runningCheck is { IsCompleted: false } running)
+        {
+            return manual ? await running : new UpdateStatus(UpdateState.Checking, "Checking for updates…", "A check is already running");
+        }
         if (_exiting) return new UpdateStatus(UpdateState.NotChecked, "Not checked", $"Version {current}");
         if (!manual && _settings.UpdateCheckFrequency == UpdateCheckFrequency.Never)
         {
@@ -328,25 +336,29 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         }
 
         _checkingUpdate = true;
+        _runningCheck = RunUpdateCheckAsync(current, manual);
+        try { return await _runningCheck; }
+        finally { _checkingUpdate = false; }
+    }
+
+    private async Task<UpdateStatus> RunUpdateCheckAsync(string current, bool manual)
+    {
         try
         {
             var update = await _updates.CheckAsync(Version.Parse(current), _updateCancellation.Token);
             if (_exiting) return new UpdateStatus(UpdateState.NotChecked, "Not checked", $"Version {current}");
             _settings.LastUpdateCheckUtc = DateTime.UtcNow;
             TrySaveSettings("update check time");
-            var checkedAt = $"Last checked {DateTime.Now:yyyy-MM-dd HH:mm}";
+            var checkedAt = UpdateMessages.LastChecked(DateTime.Now);
 
-            if (update is null)
-            {
-                if (manual) MessageDialog.Show($"You are running version {current}.\n\nNo newer installer version is available.", MessageKind.Info, owner: _settingsWindow);
-                return new UpdateStatus(UpdateState.UpToDate, $"{AppName} is up to date", $"Version {current} · {checkedAt}");
-            }
+            if (update is null) return new UpdateStatus(UpdateState.UpToDate, UpdateMessages.Latest(current), checkedAt);
 
             var available = new UpdateStatus(UpdateState.Available, $"Version {update.Version.ToString(3)} is available",
                 $"You have {current} · {checkedAt}");
             if (!manual && _lastOfferedUpdate == update.Version) return available;
             _lastOfferedUpdate = update.Version;
-            ShowUpdateDialog(update);
+            // The dialog is modal; post it so the status card shows the result first.
+            _uiContext.Post(_ => ShowUpdateDialog(update), null);
             return available;
         }
         catch (OperationCanceledException) when (_exiting)
@@ -357,10 +369,8 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         {
             Log($"update check failed: {ex.Message}");
             if (_exiting) return new UpdateStatus(UpdateState.NotChecked, "Not checked", $"Version {current}");
-            if (manual) MessageDialog.Show($"Could not check for updates. Please try again later.\n\n{ex.Message}", MessageKind.Warning, owner: _settingsWindow);
             return new UpdateStatus(UpdateState.Failed, "Could not check for updates", $"Version {current} · {ex.Message}");
         }
-        finally { _checkingUpdate = false; }
     }
 
     private void ShowUpdateDialog(AppUpdate update)

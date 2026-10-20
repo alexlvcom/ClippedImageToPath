@@ -118,6 +118,16 @@ var project = File.ReadAllText(Path.Combine(repo.FullName, "ClippedImageToPath.c
 // WPF creates real cultures when it measures text; invariant globalization crashed Tray Keeper's first TextBox.
 Check(!project.Contains("<InvariantGlobalization>true</InvariantGlobalization>"), "the app keeps culture data for WPF text layout");
 
+// An up-to-date result names the running version and never talks about installers.
+Check(UpdateMessages.Latest("1.8.0") == "You're running the latest version (v1.8.0)", "up-to-date wording names the running version");
+Check(UpdateMessages.LastChecked(new DateTime(2026, 10, 20, 13, 5, 0)) == "Last checked 2026-10-20 13:05", "the status card shows the check time");
+var appSource = File.ReadAllText(Path.Combine(repo.FullName, "Program.cs")) + File.ReadAllText(Path.Combine(repo.FullName, "Ui", "SettingsWindow.xaml.cs"));
+Check(!appSource.Contains("No newer installer", StringComparison.OrdinalIgnoreCase), "no 'No newer installer' wording remains");
+// A manual check reports in the Updates card: no message dialog for an up-to-date or failed result.
+var checkFlow = appSource[appSource.IndexOf("private async Task<UpdateStatus> RunUpdateCheckAsync", StringComparison.Ordinal)..];
+checkFlow = checkFlow[..checkFlow.IndexOf("private void ShowUpdateDialog", StringComparison.Ordinal)];
+Check(!checkFlow.Contains("MessageDialog.Show"), "update check results open no message dialog");
+
 // One version source: the .csproj version must have notes in CHANGELOG.md, which About and the title read.
 var projectVersion = System.Text.RegularExpressions.Regex.Match(project, "<Version>([^<]+)</Version>").Groups[1].Value;
 var entries = Changelog.Parse(File.ReadAllText(Path.Combine(repo.FullName, "CHANGELOG.md")));

@@ -14,6 +14,7 @@
     <Compile Include="../UpdateSchedule.cs" Link="UpdateSchedule.cs" />
     <Compile Include="../AppSettings.cs" Link="AppSettings.cs" />
     <Compile Include="../Changelog.cs" Link="Changelog.cs" />
+    <Compile Include="../UpdateMessages.cs" Link="UpdateMessages.cs" />
     <Compile Include="../AlexLV.WindowsUi/ThemeManager.cs" Link="ThemeManager.cs" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
   </ItemGroup>
