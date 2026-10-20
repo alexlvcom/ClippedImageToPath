@@ -9,6 +9,8 @@ not a clipboard image. This bridges the two.
 
 ![Tray menu](ClippedImageToPath-Tray.png)
 
+![Settings](ClippedImageToPath-Settings.png)
+
 ## Why you'd want it
 
 Coding agents work with images by **file path**. Some can grab an image off your
