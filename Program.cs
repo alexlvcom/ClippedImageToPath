@@ -526,7 +526,6 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         var saveButton = new Button
         {
             Text = "Save",
-            DialogResult = DialogResult.OK,
             Location = new Point(440, 325),
             Size = new Size(80, 30),
         };
@@ -625,38 +624,52 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         settingsForm.AcceptButton = saveButton;
         settingsForm.CancelButton = cancelButton;
 
-        if (settingsForm.ShowDialog() != DialogResult.OK)
+        // Validate and write inside the click so a failure keeps the window open with the edits.
+        saveButton.Click += (_, _) =>
         {
-            return;
-        }
+            var selectedFolder = folderText.Text.Trim();
+            if (string.IsNullOrWhiteSpace(selectedFolder))
+            {
+                MessageBox.Show(settingsForm, "Output folder cannot be empty.", AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                folderText.Focus();
+                return;
+            }
 
-        var selectedFolder = folderText.Text.Trim();
-        if (string.IsNullOrWhiteSpace(selectedFolder))
-        {
-            MessageBox.Show("Output folder cannot be empty.", AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
+            var previous = (
+                _settings.OutputDirectory, _settings.ConvertToWslPath, _settings.SmartPasteEnabled,
+                _settings.RemoteUploadEnabled, _settings.RemoteUploadReminderEnabled,
+                _settings.RemoteUploadReminderMinutes, _settings.UpdateCheckFrequency);
+            try
+            {
+                var fullFolder = Path.GetFullPath(selectedFolder);
+                Directory.CreateDirectory(fullFolder);
+                _settings.OutputDirectory = fullFolder;
+                _settings.ConvertToWslPath = wslCheck.Checked;
+                _settings.SmartPasteEnabled = smartPasteCheck.Checked;
+                _settings.RemoteUploadEnabled = uploadCheck.Checked;
+                _settings.RemoteUploadReminderEnabled = uploadReminderCheck.Checked;
+                _settings.RemoteUploadReminderMinutes = Decimal.ToInt32(uploadReminderMinutes.Value);
+                _settings.UpdateCheckFrequency = frequencies[updateFrequency.SelectedIndex];
+                _settings.Save();
+            }
+            catch (Exception ex)
+            {
+                (_settings.OutputDirectory, _settings.ConvertToWslPath, _settings.SmartPasteEnabled,
+                    _settings.RemoteUploadEnabled, _settings.RemoteUploadReminderEnabled,
+                    _settings.RemoteUploadReminderMinutes, _settings.UpdateCheckFrequency) = previous;
+                Log($"settings save failed: {ex.Message}");
+                MessageBox.Show(settingsForm, $"Failed to save settings: {ex.Message}", AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
 
-        try
-        {
-            var fullFolder = Path.GetFullPath(selectedFolder);
-            Directory.CreateDirectory(fullFolder);
-            _settings.OutputDirectory = fullFolder;
-            _settings.ConvertToWslPath = wslCheck.Checked;
-            _settings.SmartPasteEnabled = smartPasteCheck.Checked;
-            _settings.RemoteUploadEnabled = uploadCheck.Checked;
-            _settings.RemoteUploadReminderEnabled = uploadReminderCheck.Checked;
-            _settings.RemoteUploadReminderMinutes = Decimal.ToInt32(uploadReminderMinutes.Value);
-            _settings.UpdateCheckFrequency = frequencies[updateFrequency.SelectedIndex];
-            _settings.Save();
             ApplyUpdateSchedule();
+            UpdateRemoteUploadReminderTimer();
             RefreshIdleTrayIcon();
             Log("settings updated");
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show($"Failed to save settings: {ex.Message}", AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
+            settingsForm.DialogResult = DialogResult.OK;
+        };
+
+        settingsForm.ShowDialog();
     }
 
     private static readonly RemoteProtocol[] ProtocolOrder =
@@ -695,8 +708,12 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
             MaximizeBox = false,
             MinimizeBox = false,
             ShowInTaskbar = false,
-            ClientSize = new Size(540, 360),
+            ClientSize = new Size(540, 410),
         };
+
+        // Edit a draft copy; nothing is written until Save.
+        var servers = _settings.RemoteServers.Select(s => s.Clone()).ToList();
+        var activeServer = _settings.ActiveServer;
 
         var hint = new Label
         {
@@ -716,9 +733,9 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         {
             list.BeginUpdate();
             list.Items.Clear();
-            foreach (var server in _settings.RemoteServers)
+            foreach (var server in servers)
             {
-                var active = string.Equals(server.Name, _settings.ActiveServer, StringComparison.Ordinal);
+                var active = string.Equals(server.Name, activeServer, StringComparison.Ordinal);
                 list.Items.Add((active ? "● " : "    ") + server.DisplayLine());
             }
 
@@ -733,8 +750,8 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         }
 
         RemoteServer? Selected() =>
-            list.SelectedIndex >= 0 && list.SelectedIndex < _settings.RemoteServers.Count
-                ? _settings.RemoteServers[list.SelectedIndex]
+            list.SelectedIndex >= 0 && list.SelectedIndex < servers.Count
+                ? servers[list.SelectedIndex]
                 : null;
 
         const int buttonX = 408;
@@ -745,28 +762,51 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         var removeButton = new Button { Text = "Remove", Location = new Point(buttonX, 108), Size = new Size(buttonWidth, 30) };
         var activeButton = new Button { Text = "Set as active", Location = new Point(buttonX, 158), Size = new Size(buttonWidth, 30) };
         var testButton = new Button { Text = "Test", Location = new Point(buttonX, 194), Size = new Size(buttonWidth, 30) };
-        var closeButton = new Button { Text = "Close", DialogResult = DialogResult.OK, Location = new Point(buttonX, 306), Size = new Size(buttonWidth, 30) };
+        var saveButton = new Button { Text = "Save", Location = new Point(346, 362), Size = new Size(85, 30) };
+        var cancelButton = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, Location = new Point(439, 362), Size = new Size(85, 30) };
+
+        saveButton.Click += (_, _) =>
+        {
+            var previousServers = _settings.RemoteServers.ToList();
+            var previousActive = _settings.ActiveServer;
+            _settings.RemoteServers.Clear();
+            _settings.RemoteServers.AddRange(servers);
+            _settings.ActiveServer = activeServer;
+            try
+            {
+                _settings.Save();
+            }
+            catch (Exception ex)
+            {
+                _settings.RemoteServers.Clear();
+                _settings.RemoteServers.AddRange(previousServers);
+                _settings.ActiveServer = previousActive;
+                Log($"remote servers save failed: {ex.Message}");
+                MessageBox.Show(form, $"Failed to save remote servers: {ex.Message}", AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            Log($"remote servers updated: {servers.Count} server(s), active '{activeServer}'");
+            form.DialogResult = DialogResult.OK;
+        };
 
         addButton.Click += (_, _) =>
         {
             var server = new RemoteServer
             {
-                Name = SuggestServerName(),
+                Name = SuggestServerName(servers),
                 Protocol = RemoteProtocol.Sftp.ToString(),
                 Port = DefaultPortFor(RemoteProtocol.Sftp),
             };
-            if (EditRemoteServer(form, server, isNew: true))
+            if (EditRemoteServer(form, server, servers, isNew: true))
             {
-                _settings.RemoteServers.Add(server);
-                if (_settings.RemoteServers.Count == 1)
+                servers.Add(server);
+                if (servers.Count == 1)
                 {
-                    _settings.ActiveServer = server.Name;
+                    activeServer = server.Name;
                 }
 
-                _settings.Save();
-                RefreshIdleTrayIcon();
-                Log($"remote server added: {server.Name}");
-                Reload(_settings.RemoteServers.Count - 1);
+                Reload(servers.Count - 1);
             }
         };
 
@@ -780,17 +820,14 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
 
             var previousName = server.Name;
             var index = list.SelectedIndex;
-            if (EditRemoteServer(form, server, isNew: false))
+            if (EditRemoteServer(form, server, servers, isNew: false))
             {
                 // Keep the active pointer aligned if the active server was renamed.
-                if (string.Equals(_settings.ActiveServer, previousName, StringComparison.Ordinal))
+                if (string.Equals(activeServer, previousName, StringComparison.Ordinal))
                 {
-                    _settings.ActiveServer = server.Name;
+                    activeServer = server.Name;
                 }
 
-                _settings.Save();
-                RefreshIdleTrayIcon();
-                Log($"remote server updated: {server.Name}");
                 Reload(index);
             }
         }
@@ -817,16 +854,13 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
             }
 
             var index = list.SelectedIndex;
-            var wasActive = string.Equals(_settings.ActiveServer, server.Name, StringComparison.Ordinal);
-            _settings.RemoteServers.Remove(server);
+            var wasActive = string.Equals(activeServer, server.Name, StringComparison.Ordinal);
+            servers.Remove(server);
             if (wasActive)
             {
-                _settings.ActiveServer = _settings.RemoteServers.Count > 0 ? _settings.RemoteServers[0].Name : string.Empty;
+                activeServer = servers.Count > 0 ? servers[0].Name : string.Empty;
             }
 
-            _settings.Save();
-            RefreshIdleTrayIcon();
-            Log($"remote server removed: {server.Name}");
             Reload(index);
         };
 
@@ -838,10 +872,7 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
                 return;
             }
 
-            _settings.ActiveServer = server.Name;
-            _settings.Save();
-            RefreshIdleTrayIcon();
-            Log($"active server -> {server.Name}");
+            activeServer = server.Name;
             Reload(list.SelectedIndex);
         };
 
@@ -884,21 +915,22 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         form.Controls.Add(removeButton);
         form.Controls.Add(activeButton);
         form.Controls.Add(testButton);
-        form.Controls.Add(closeButton);
-        form.AcceptButton = closeButton;
-        form.CancelButton = closeButton;
+        form.Controls.Add(saveButton);
+        form.Controls.Add(cancelButton);
+        form.AcceptButton = saveButton;
+        form.CancelButton = cancelButton;
 
-        Reload(_settings.RemoteServers.FindIndex(s => string.Equals(s.Name, _settings.ActiveServer, StringComparison.Ordinal)));
+        Reload(servers.FindIndex(s => string.Equals(s.Name, activeServer, StringComparison.Ordinal)));
         form.ShowDialog(owner);
         RefreshIdleTrayIcon();
     }
 
-    private string SuggestServerName()
+    private static string SuggestServerName(List<RemoteServer> servers)
     {
         for (var i = 1; ; i++)
         {
             var candidate = $"Server {i}";
-            if (!_settings.RemoteServers.Any(s => string.Equals(s.Name, candidate, StringComparison.OrdinalIgnoreCase)))
+            if (!servers.Any(s => string.Equals(s.Name, candidate, StringComparison.OrdinalIgnoreCase)))
             {
                 return candidate;
             }
@@ -906,7 +938,7 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
     }
 
     // Edits the given server in place. Returns true only when the user saves valid values.
-    private bool EditRemoteServer(IWin32Window owner, RemoteServer server, bool isNew)
+    private bool EditRemoteServer(IWin32Window owner, RemoteServer server, List<RemoteServer> servers, bool isNew)
     {
         using var sshForm = new Form
         {
@@ -1013,7 +1045,7 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
                 return;
             }
 
-            if (_settings.RemoteServers.Any(s => !ReferenceEquals(s, server) && string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase)))
+            if (servers.Any(s => !ReferenceEquals(s, server) && string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase)))
             {
                 MessageBox.Show($"A server named '{name}' already exists.", AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
@@ -2401,7 +2433,9 @@ internal sealed class AppSettings
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         };
         var json = JsonSerializer.Serialize(this, options);
-        File.WriteAllText(SettingsFilePath, json);
+        var temp = SettingsFilePath + ".tmp";
+        File.WriteAllText(temp, json);
+        File.Move(temp, SettingsFilePath, overwrite: true);
     }
 
     internal RemoteServer? GetActiveServer()
@@ -2457,6 +2491,8 @@ internal sealed class RemoteServer
     public string RemoteDirectory { get; set; } = ".";
 
     private const string DpapiScheme = "DPAPI:";
+
+    internal RemoteServer Clone() => (RemoteServer)MemberwiseClone();
 
     internal string GetPassword()
     {

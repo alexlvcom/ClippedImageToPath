@@ -60,8 +60,9 @@ and how to verify the download.
 Open **Settings** from the tray menu. The compact window has four tabs:
 **Saved images**, **Clipboard**, **Remote upload**, and **Updates**.
 **Open output folder** is beside Browse in Saved images.
-The Settings title shows your current version. Save applies changes across all tabs;
-Cancel leaves them unchanged.
+The Settings title shows your current version. Save applies changes across all tabs,
+including the update schedule, without restarting. If a change can't be saved, Settings
+stays open with your edits. Cancel, Esc, or closing the window leaves everything unchanged.
 
 ## Updates
 

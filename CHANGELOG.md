@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.7.3 - 2026-10-20
+
+### Main changes
+
+- **Settings only change on Save:** if a setting can't be saved, Settings now shows the error and stays open with your edits instead of closing. Cancel, Esc, or closing the window discards every unsaved change.
+- **Remote servers use Save and Cancel:** adding, editing, removing, or selecting the active server applies only when you click Save in the Remote Servers window. Cancel discards those edits.
+
+### Other updates
+
+- Save the settings file atomically so an interrupted write cannot leave it half-written.
+- Apply a changed remote upload reminder interval as soon as Settings is saved.
+
 ## 1.7.2 - 2026-10-19
 
 - Start the update download timeout when Update is clicked. Report timeouts and allow retrying instead of leaving the download dialog stuck.

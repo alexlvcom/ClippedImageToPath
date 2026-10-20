@@ -32,6 +32,7 @@
 - Group related controls into Saved images, Clipboard, Remote upload, and Updates tabs. Keep the compact window free of scrolling and Save/Cancel in a separate footer.
 - Open output folder belongs beside the folder selector in Saved images, not in the tray menu. It opens the path currently shown in the selector.
 - Use native layout containers to prevent labels and inputs from overlapping. Preserve tooltips, dependencies, saved values, and keyboard navigation.
+- Follow the shared Save/Cancel draft model: every Settings tab shows the same Save/Cancel footer, all preferences (including the update schedule) apply only on Save, Save keeps the window open and reports any validation or write failure, and Cancel/Esc/X discards edits. The Remote Servers manager edits a draft and commits it with its own Save/Cancel footer. Check for updates, Open folder, Browse, and Test stay immediate actions.
 
 ## About focus
 

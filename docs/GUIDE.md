@@ -110,7 +110,9 @@ Turning it on from the tray shows a notification naming the server uploads will 
 ## Settings
 
 Settings uses compact **Saved images**, **Clipboard**, **Remote upload**, and
-**Updates** tabs without scrolling. Save and Cancel stay in the footer.
+**Updates** tabs without scrolling. Save and Cancel stay in the footer on every tab.
+Nothing changes until you click Save; if saving fails, Settings shows the error and
+stays open. Cancel, Esc, or closing the window discards unsaved edits.
 **Open output folder** sits beside Browse in Saved images and opens the selected folder.
 
 ![Settings dialog](../ClippedImageToPath-Config.png)
@@ -124,7 +126,7 @@ Hover over any option to see a short description of what it does.
 | **Paste path with `Shift+Insert`** | Turns the path paste on or off |
 | **Remote upload enabled** | Uploads each saved PNG to the active server |
 | **Remote upload notifications** | Reminder toggle plus the interval in minutes (30 by default) |
-| **Remote servers…** | Add, edit, remove and pick the active server profile |
+| **Remote servers…** | Add, edit, remove and pick the active server profile. Changes apply when you click Save in that window; Cancel discards them |
 
 ## Remote upload
 
