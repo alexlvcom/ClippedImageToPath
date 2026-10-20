@@ -129,6 +129,8 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
 
         // Before the menu and any window: the kit's brushes and title bars follow this theme.
         ThemeManager.Initialize(AppName, AppInfo.Accent, _settings.Theme);
+        // A pin made from an old portable copy keeps launching it; point pins at this installed EXE.
+        _ = Task.Run(() => ShortcutRepair.RepairTaskbarPins());
         ThemeManager.WindowIcon = WinFormsHosting.ToImageSource(_trayIcon);
 
         var menu = BuildMenu();
