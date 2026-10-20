@@ -10,7 +10,7 @@
 
 ### Other updates
 
-- Check for updates in Settings shows its result in the Updates card instead of a pop-up: "You're running the latest version (v1.8.0)" with the check time, or why the check failed. Only a newer release opens the Update dialog.
+- Check for updates in Settings shows its result in the Updates card instead of a pop-up: "You're running the latest version (v1.8.0)" with the check time, or why the check failed. Only a newer release opens the Update dialog. When Settings opens, the card shows what the last check actually found, with an Update button when a newer version was found.
 - The server editor shows each problem under its field instead of in a pop-up, and passive mode is greyed out for SFTP, where it does not apply.
 - The Updates tab shows when the last check ran, and the update dialog shows download progress and offers Try again after a timeout or failure.
 - The Remote upload tab names the server uploads go to and how many servers are configured.

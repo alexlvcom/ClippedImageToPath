@@ -347,13 +347,13 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         {
             var update = await _updates.CheckAsync(Version.Parse(current), _updateCancellation.Token);
             if (_exiting) return new UpdateStatus(UpdateState.NotChecked, "Not checked", $"Version {current}");
-            _settings.LastUpdateCheckUtc = DateTime.UtcNow;
-            TrySaveSettings("update check time");
+            RememberUpdateCheck(current, update is null ? UpdateCheckOutcome.Current : UpdateCheckOutcome.Available,
+                update?.Version.ToString(3), error: null);
             var checkedAt = UpdateMessages.LastChecked(DateTime.Now);
 
             if (update is null) return new UpdateStatus(UpdateState.UpToDate, UpdateMessages.Latest(current), checkedAt);
 
-            var available = new UpdateStatus(UpdateState.Available, $"Version {update.Version.ToString(3)} is available",
+            var available = new UpdateStatus(UpdateState.Available, UpdateMessages.Available(update.Version.ToString(3)),
                 $"You have {current} · {checkedAt}");
             if (!manual && _lastOfferedUpdate == update.Version) return available;
             _lastOfferedUpdate = update.Version;
@@ -369,8 +369,20 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         {
             Log($"update check failed: {ex.Message}");
             if (_exiting) return new UpdateStatus(UpdateState.NotChecked, "Not checked", $"Version {current}");
+            RememberUpdateCheck(current, UpdateCheckOutcome.Failed, available: null, ex.Message);
             return new UpdateStatus(UpdateState.Failed, "Could not check for updates", $"Version {current} · {ex.Message}");
         }
+    }
+
+    /// <summary>Keeps the last check's outcome so Settings can show it when it next opens.</summary>
+    private void RememberUpdateCheck(string current, UpdateCheckOutcome outcome, string? available, string? error)
+    {
+        _settings.LastUpdateCheckUtc = DateTime.UtcNow;
+        _settings.LastUpdateOutcome = outcome;
+        _settings.LastUpdateCheckVersion = current;
+        _settings.LastAvailableVersion = available;
+        _settings.LastUpdateError = error;
+        TrySaveSettings("update check result");
     }
 
     private void ShowUpdateDialog(AppUpdate update)

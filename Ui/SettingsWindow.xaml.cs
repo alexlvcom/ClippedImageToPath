@@ -8,18 +8,6 @@ using AlexLV.WindowsUi;
 
 namespace ClippedImageToPath.Ui;
 
-internal enum UpdateState
-{
-    NotChecked,
-    Checking,
-    UpToDate,
-    Available,
-    Failed,
-}
-
-/// <summary>What the Updates tab's status card shows after a check.</summary>
-internal sealed record UpdateStatus(UpdateState State, string Title, string Detail);
-
 /// <summary>What Settings needs from the tray app that owns the running settings.</summary>
 internal sealed record SettingsHost(
     bool SmartPasteAvailable,
@@ -89,11 +77,8 @@ internal partial class SettingsWindow : ThemedWindow
         Minutes.TextChanged += (_, _) => OnEdited();
         Frequency.SelectionChanged += (_, _) => OnEdited();
 
-        ShowUpdateStatus(draft.LastUpdateCheckUtc is { } checkedAt
-            ? new UpdateStatus(UpdateState.UpToDate, UpdateMessages.Latest(Changelog.MarketingVersion),
-                UpdateMessages.LastChecked(checkedAt.ToLocalTime()))
-            : new UpdateStatus(UpdateState.NotChecked, "Not checked yet",
-                $"Version {Changelog.MarketingVersion} · Use Check for updates to look now"));
+        // The running settings hold the last check's outcome; the draft may predate a check made since.
+        ShowUpdateStatus(UpdateMessages.FromLastCheck(_host.Running(), Changelog.MarketingVersion));
 
         BuildAbout();
         BuildDiagnostics();
@@ -337,6 +322,7 @@ internal partial class SettingsWindow : ThemedWindow
     {
         UpdateTitle.Text = status.Title;
         UpdateDetail.Text = status.Detail;
+        UpdateNowButton.Visibility = status.State == UpdateState.Available ? Visibility.Visible : Visibility.Collapsed;
         UpdateDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, status.State switch
         {
             UpdateState.Failed => "Danger",

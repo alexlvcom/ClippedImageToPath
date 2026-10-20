@@ -2,6 +2,7 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using ClippedImageToPath.Ui;
 
 var payload = Encoding.UTF8.GetBytes("test installer payload");
 var digest = Convert.ToHexString(SHA256.HashData(payload));
@@ -127,6 +128,26 @@ Check(!appSource.Contains("No newer installer", StringComparison.OrdinalIgnoreCa
 var checkFlow = appSource[appSource.IndexOf("private async Task<UpdateStatus> RunUpdateCheckAsync", StringComparison.Ordinal)..];
 checkFlow = checkFlow[..checkFlow.IndexOf("private void ShowUpdateDialog", StringComparison.Ordinal)];
 Check(!checkFlow.Contains("MessageDialog.Show"), "update check results open no message dialog");
+
+// The card shown when Settings opens reflects the last check's actual outcome.
+var checkedUtc = new DateTime(2026, 10, 20, 10, 0, 0, DateTimeKind.Utc);
+UpdateStatus Opened(UpdateCheckOutcome outcome, string? available = null, string? error = null, string ranOn = "1.8.0", DateTime? at = null) =>
+    UpdateMessages.FromLastCheck(new AppSettings
+    {
+        LastUpdateCheckUtc = at ?? checkedUtc, LastUpdateOutcome = outcome, LastUpdateCheckVersion = ranOn,
+        LastAvailableVersion = available, LastUpdateError = error,
+    }, "1.8.0");
+var opened = Opened(UpdateCheckOutcome.Current);
+Check(opened.State == UpdateState.UpToDate && opened.Title == "You're running the latest version (v1.8.0)", "a current last check opens as the latest version");
+opened = Opened(UpdateCheckOutcome.Available, available: "1.9.0");
+Check(opened.State == UpdateState.Available && opened.Title == "Version 1.9.0 is available", "a last check that found a newer release opens as available");
+opened = Opened(UpdateCheckOutcome.Failed, error: "No such host is known");
+Check(opened.State == UpdateState.Failed && opened.Detail.Contains("No such host is known"), "a failed last check opens with its reason");
+Check(Opened(UpdateCheckOutcome.Available, available: "1.8.0").State == UpdateState.NotChecked, "an offered version no longer newer is not shown as available");
+Check(Opened(UpdateCheckOutcome.Current, ranOn: "1.7.3").State == UpdateState.NotChecked, "a check made by an older version is not shown as current");
+Check(UpdateMessages.FromLastCheck(new AppSettings(), "1.8.0").State == UpdateState.NotChecked, "no check yet opens as not checked");
+// A check time alone, as saved before outcomes were remembered, is not proof the app is current.
+Check(Opened(UpdateCheckOutcome.None).State == UpdateState.NotChecked, "a check time without an outcome is not shown as current");
 
 // One version source: the .csproj version must have notes in CHANGELOG.md, which About and the title read.
 var projectVersion = System.Text.RegularExpressions.Regex.Match(project, "<Version>([^<]+)</Version>").Groups[1].Value;

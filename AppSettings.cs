@@ -4,6 +4,15 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using AlexLV.WindowsUi;
 
+/// <summary>What the last update check found. Saved by number; keep existing values stable.</summary>
+internal enum UpdateCheckOutcome
+{
+    None = 0,
+    Current = 1,
+    Available = 2,
+    Failed = 3,
+}
+
 internal sealed class AppSettings
 {
     internal const int DefaultRemoteUploadReminderMinutes = 30;
@@ -29,8 +38,17 @@ internal sealed class AppSettings
     // Appearance → Theme. System follows the Windows app mode.
     public AppTheme Theme { get; set; } = AppTheme.System;
 
-    // Last automatic or manual update check, shown on the Updates tab.
+    // Last automatic or manual update check and its outcome, shown on the Updates tab when Settings opens.
     public DateTime? LastUpdateCheckUtc { get; set; }
+
+    public UpdateCheckOutcome LastUpdateOutcome { get; set; }
+
+    // The running version when that check ran, so a result from before an update is not shown as current.
+    public string? LastUpdateCheckVersion { get; set; }
+
+    public string? LastAvailableVersion { get; set; }
+
+    public string? LastUpdateError { get; set; }
 
     // Named remote server profiles. The one whose Name matches ActiveServer is used for uploads.
     public List<RemoteServer> RemoteServers { get; set; } = new();
