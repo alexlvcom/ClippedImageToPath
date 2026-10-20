@@ -23,7 +23,8 @@ internal partial class UpdateWindow : ThemedWindow
         _updates = updates;
         _log = log;
         _cancellation = CancellationTokenSource.CreateLinkedTokenSource(appShutdown);
-        Title = $"Update {AppInfo.DisplayName} (v{Changelog.MarketingVersion})";
+        Title = $"Update {AppInfo.DisplayName}";
+        TitleVersion = $"v{Changelog.MarketingVersion}";
         Heading.Text = $"Version {update.Version.ToString(3)} is available";
         Message.Text = $"You have {Changelog.MarketingVersion}. Update downloads and verifies the installer, then opens setup. " +
                        "Setup closes the app and restarts it after updating.";

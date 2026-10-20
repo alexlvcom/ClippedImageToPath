@@ -53,7 +53,7 @@
 
 - Keep tag-driven GitHub Actions release publishing with `GITHUB_TOKEN`. GitHub showing `github-actions` as release author is expected and accepted by the owner. Do not add a personal token or manual publishing only to change this label. Commit authorship is separate.
 
-- Put versions in window titles in parentheses, e.g. `Clipped Image to Path Settings (v1.7.0)`, rather than after a dash. Small update-result popups keep the version only in their message.
+- Never put the version in a window title. Set `TitleVersion` (e.g. `v1.4.0`) on the window instead: the kit draws it right-aligned in the title row, without brackets. On Settings and main windows clicking it opens Updates; update dialogs show it as plain text. Small update-result popups keep the version only in their message.
 
 ## Release grouping
 
