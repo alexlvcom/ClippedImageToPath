@@ -2,7 +2,10 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
+    <!-- WinForms hosts the tray icon, clipboard listener and message loop; every window is WPF with the
+         shared AlexLV.WindowsUi kit (see AlexLV.WindowsUi/ThemeManager.cs and C:\projects\AlexLV.WindowsUi\README.md). -->
     <UseWindowsForms>true</UseWindowsForms>
+    <UseWPF>true</UseWPF>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>ClippedImageToPath</AssemblyName>
@@ -10,15 +13,35 @@
     <AssemblyTitle>Clipped Image to Path</AssemblyTitle>
     <Product>Clipped Image to Path</Product>
     <Description>Clipped Image to Path</Description>
+    <Authors>Alex LV</Authors>
+    <Company>Alex LV</Company>
+    <Copyright>Copyright © 2026 Alex LV</Copyright>
     <ApplicationIcon>ClippedImageToPath.ico</ApplicationIcon>
-    <Version>1.7.3</Version>
-    <FileVersion>1.7.3.0</FileVersion>
-    <AssemblyVersion>1.7.3.0</AssemblyVersion>
-    <InformationalVersion>1.7.3</InformationalVersion>
+    <Version>1.8.0</Version>
+    <FileVersion>1.8.0.0</FileVersion>
+    <AssemblyVersion>1.8.0.0</AssemblyVersion>
+    <InformationalVersion>1.8.0</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <!-- WPF text layout creates real cultures (for example "en") when it measures fonts; invariant
+         globalization makes the first TextBox throw and crash the app. -->
+    <InvariantGlobalization>false</InvariantGlobalization>
   </PropertyGroup>
   <ItemGroup>
+    <!-- WinForms and WPF share type names (Button, TextBox, Application); WinForms files import
+         System.Windows.Forms and System.Drawing explicitly instead of through implicit usings. -->
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+    <!-- UseWPF drops these to avoid System.Windows.Shapes.Path; no file here imports Shapes. -->
+    <Using Include="System.IO" />
+    <Using Include="System.Net.Http" />
+  </ItemGroup>
+  <ItemGroup>
     <Compile Remove="tests/**/*.cs" />
+    <Compile Remove="tmp/**/*.cs" />
+    <Page Remove="tests/**/*.xaml" />
+    <EmbeddedResource Include="CHANGELOG.md">
+      <LogicalName>CHANGELOG.md</LogicalName>
+    </EmbeddedResource>
     <PackageReference Include="SSH.NET" Version="2024.2.0" />
     <PackageReference Include="FluentFTP" Version="52.1.0" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />

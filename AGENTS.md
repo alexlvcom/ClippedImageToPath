@@ -18,25 +18,35 @@
 - Keep user settings in `%APPDATA%\ClippedImageToPath`; upgrades and uninstall must preserve them.
 - Setup and uninstall close the app through `WM_CLOSE` on `ClippedImageToPathListener`, then wait for its mutex to be released. Keep this wired to the same clean exit as the tray menu. Setup uses `PrepareToInstall` and restarts a previously running app after upgrade. Do not add an `AppMutex` directive that prompts before automatic shutdown.
 - Label the installer autostart task "Start with Windows".
-- About must show the actual running EXE path from `Application.ExecutablePath`, not a hard-coded installation path.
+- Settings → Diagnostics must show the actual running EXE path from `Environment.ProcessPath`, not a hard-coded installation path.
 
 ## GitHub updates
 
 - Default to checking immediately on startup and daily while running. Settings must support hourly, daily, weekly, calendar-monthly, and never. Never disables startup and scheduled checks while leaving manual checks available. Keep checks asynchronous and prevent overlapping checks or downloads.
 - Offer Update/Later for a newer stable release with `ClippedImageToPath-Setup.exe`. Download only after Update is clicked. Verify the GitHub SHA-256 digest or published `SHA256SUMS.txt` before launching setup.
 - Keep background failures quiet. Manual Check for updates lives in Settings, not the tray menu, and must report results. Later suppresses that version for the current session; manual checks may offer it again.
-- Run updater tests with `dotnet run --project tests/Updater.Tests.csproj -c Release`.
+- Run tests (updater, settings/theme, version and globalization guards) with `dotnet run --project tests/Updater.Tests.csproj -c Release`; check its exit code.
 
 ## Settings layout
 
-- Group related controls into Saved images, Clipboard, Remote upload, and Updates tabs. Keep the compact window free of scrolling and Save/Cancel in a separate footer.
+- Group related controls into Saved images, Clipboard, Remote upload, Updates, Appearance, About, and Diagnostics tabs. Every tab must fit the fixed 720×660 window without vertical scrolling; move overflowing content to another tab. Keep Save/Cancel in a separate footer.
 - Open output folder belongs beside the folder selector in Saved images, not in the tray menu. It opens the path currently shown in the selector.
 - Use native layout containers to prevent labels and inputs from overlapping. Preserve tooltips, dependencies, saved values, and keyboard navigation.
 - Follow the shared Save/Cancel draft model: every Settings tab shows the same Save/Cancel footer, all preferences (including the update schedule) apply only on Save, Save keeps the window open and reports any validation or write failure, and Cancel/Esc/X discards edits. The Remote Servers manager edits a draft and commits it with its own Save/Cancel footer. Check for updates, Open folder, Browse, and Test stay immediate actions.
 
-## About focus
+## About and Diagnostics
 
-- Show the app icon before the app name. Keep the EXE path selectable for copying, but focus Close initially so the path is not preselected.
+- About is a Settings tab, not a tray item or separate window: the app icon before the app name, version, build date, Project page, and release notes for the running version. Diagnostics holds the selectable Executable, Settings, and Log paths with Open buttons and Copy details. Focus Save initially so no path is preselected.
+
+## UI and themes
+
+- The tray icon, its menu, the clipboard listener, the paste hook and the message loop stay WinForms (`Program.cs`). Every window and dialog is WPF in `Ui/`, styled by the shared AlexLV Windows UI kit vendored unchanged in `AlexLV.WindowsUi/`. The canonical copy is `C:projectsAlexLV.WindowsUi` (see its README); change it there and copy it to every app.
+- Windows derive from `ThemedWindow` (XAML root `ui:ThemedWindow`) so they never flash light. Use `MessageDialog`, never `MessageBox`. `TrayMenuStyler` themes the tray menu; `StyleActiveServerMenu` applies the same renderer to the Active server submenu.
+- Appearance → Theme offers System (default), Light and Dark. System follows the Windows app mode live. A new theme previews at once; any close without Save restores the saved theme.
+- Accent: `#007850` light, `#5FD3A0` dark (from the icon). Surfaces stay neutral. The approved design is `design/ui-redesign.html`; update it before a visible redesign.
+- Keep `InvariantGlobalization` off: WPF text layout creates cultures, and invariant mode crashes the first TextBox. A test guards it.
+- The version comes from the `.csproj`; release notes come only from the embedded `CHANGELOG.md` (`Changelog.cs`). A test checks that the newest changelog heading matches all four `.csproj` version fields.
+- After a visible UI change, run `ClippedImageToPath.exe --render-windows <folder>` and check `render.txt` (no `SCROLL` or `FAILED` lines) and the PNGs in both themes.
 - Keep shared UI conventions documented in `/home/standfest/sites/alexlv.com/docs/windows-apps-common-standards.md` and its published copy when changing them.
 
 ## Automated release identity

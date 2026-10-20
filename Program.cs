@@ -1,13 +1,12 @@
-﻿using System.Drawing;
+using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
-using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Windows.Forms;
+using AlexLV.WindowsUi;
+using ClippedImageToPath.Ui;
 using FluentFTP;
 using Renci.SshNet;
 
@@ -22,6 +21,13 @@ internal static class Program
             return;
         }
 
+        // Developer check: render every window in both themes to PNGs (runs beside the tray instance).
+        if (args.Length > 1 && args[0] == "--render-windows")
+        {
+            Environment.ExitCode = WindowRenderer.Run(args[1]);
+            return;
+        }
+
         using var mutex = new Mutex(initiallyOwned: true, name: "ClippedImageToPath.Singleton", createdNew: out var createdNew);
         if (!createdNew)
         {
@@ -29,14 +35,22 @@ internal static class Program
         }
 
         ApplicationConfiguration.Initialize();
+        ClipboardBridgeContext? running = null;
+        Application.ThreadException += (_, e) => running?.LogError("unhandled UI exception", e.Exception);
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => running?.LogError("unhandled exception", e.ExceptionObject as Exception);
         using var context = new ClipboardBridgeContext();
+        running = context;
         Application.Run(context);
     }
 }
 
+/// <summary>
+/// Owns the tray icon, the clipboard listener and the paste hook. The tray and the message loop stay
+/// WinForms; every window is WPF with the shared AlexLV.WindowsUi kit.
+/// </summary>
 internal sealed class ClipboardBridgeContext : ApplicationContext
 {
-    private const string AppName = "Clipped Image to Path";
+    private const string AppName = AppInfo.DisplayName;
 
     // Config
     private const string FilePrefix = "clipboard_";
@@ -63,6 +77,7 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
     private readonly SynchronizationContext _uiContext;
     private readonly ClipboardListenerWindow _listenerWindow;
     private readonly NotifyIcon _notifyIcon;
+    private readonly TrayMenuStyler _menuStyler;
     private readonly Icon _trayIcon;
     private readonly Icon _remoteUploadTrayIcon;
     private readonly Icon _uploadingTrayIcon;
@@ -78,7 +93,10 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
     private DateTime _nextUpdateCheckUtc;
     private bool _checkingUpdate;
     private bool _exiting;
+    private bool _disposed;
     private Version? _lastOfferedUpdate;
+    private SettingsWindow? _settingsWindow;
+    private UpdateWindow? _updateWindow;
 
     private string? _pendingClipboardText;
     private Bitmap? _pendingClipboardImage;
@@ -107,12 +125,21 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         _trayIcon = TrayIconFactory.CreateNormal();
         _remoteUploadTrayIcon = TrayIconFactory.CreateRemoteUploadEnabled();
         _uploadingTrayIcon = TrayIconFactory.CreateUploading();
+
+        // Before the menu and any window: the kit's brushes and title bars follow this theme.
+        ThemeManager.Initialize(AppName, AppInfo.Accent, _settings.Theme);
+        ThemeManager.WindowIcon = WinFormsHosting.ToImageSource(_trayIcon);
+
+        var menu = BuildMenu();
+        _menuStyler = new TrayMenuStyler(menu);
+        _menuStyler.SetGlyph(_settingsMenuItem!, "");
+        _menuStyler.SetGlyph(_exitMenuItem!, "");
         _notifyIcon = new NotifyIcon
         {
             Icon = GetIdleTrayIcon(),
             Text = GetIdleTrayText(),
             Visible = true,
-            ContextMenuStrip = BuildMenu(),
+            ContextMenuStrip = menu,
         };
         _notifyIcon.MouseDoubleClick += (_, e) =>
         {
@@ -153,7 +180,7 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         _remoteUploadReminderTimer.Tick += (_, _) => ShowRemoteUploadReminder();
         UpdateRemoteUploadReminderTimer();
 
-        _listenerWindow = new ClipboardListenerWindow(HandleClipboardUpdate, ExitThread);
+        _listenerWindow = new ClipboardListenerWindow(HandleClipboardUpdate, ExitApplication);
         try
         {
             _pasteMonitor = new GlobalPasteMonitor(HandlePasteShortcut, HandlePasteShortcutReleased);
@@ -174,24 +201,46 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         ApplyUpdateSchedule();
         // Start after construction, as soon as the UI message loop runs.
         _uiContext.Post(async _ => await CheckForUpdatesAsync(false), null);
-        Log("started");
+        Log($"started v{Changelog.MarketingVersion}");
     }
 
     private string LogFilePath => Path.Combine(_settings.OutputDirectory, "bridge.log");
+
+    private ToolStripMenuItem? _settingsMenuItem;
+    private ToolStripMenuItem? _exitMenuItem;
+
+    internal void LogError(string context, Exception? ex) => Log($"{context}: {ex}");
 
     private void EnsureOutputDirectoryExists()
     {
         Directory.CreateDirectory(_settings.OutputDirectory);
     }
 
+    /// <summary>The tray Exit command, and setup/uninstall through the listener's WM_CLOSE.</summary>
+    private void ExitApplication()
+    {
+        if (_exiting) return;
+        _exiting = true;
+        Log("exiting");
+        _notifyIcon.Visible = false;
+        // Closing Settings also closes the Remote Servers and server editor windows it owns.
+        _settingsWindow?.Close();
+        _updateWindow?.Close();
+        ExitThread();
+    }
+
     protected override void Dispose(bool disposing)
     {
+        // A crash path can dispose twice (ExitThread, then Program.Main); cancelling a disposed source throws.
+        if (_disposed) return;
+        _disposed = true;
         if (disposing)
         {
             _exiting = true;
             _updateTimer.Stop();
             _updateTimer.Dispose();
             _updateCancellation.Cancel();
+            _updateCancellation.Dispose();
             _updates.Dispose();
             _listenerWindow.Dispose();
             _deferredProcessTimer.Stop();
@@ -208,6 +257,8 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
             _pendingClipboardImage?.Dispose();
             _activeClipboardImage?.Dispose();
             _notifyIcon.Visible = false;
+            _menuStyler.Dispose();
+            _notifyIcon.ContextMenuStrip?.Dispose();
             _notifyIcon.Dispose();
             _trayIcon.Dispose();
             _remoteUploadTrayIcon.Dispose();
@@ -221,7 +272,7 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
     {
         var menu = new ContextMenuStrip();
 
-        _remoteUploadStatusMenuItem = new ToolStripMenuItem("Enable Remote Upload")
+        _remoteUploadStatusMenuItem = new ToolStripMenuItem("Enable &remote upload")
         {
             CheckOnClick = false,
         };
@@ -249,9 +300,11 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         };
 
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Settings", null, (_, _) => ShowSettingsDialog());
-        menu.Items.Add("About", null, (_, _) => ShowAboutDialog());
-        menu.Items.Add("Exit", null, (_, _) => ExitThread());
+        // About lives in Settings (About and Diagnostics tabs), so the menu has one Settings… item.
+        _settingsMenuItem = new ToolStripMenuItem("Se&ttings…", null, (_, _) => ShowSettings());
+        _exitMenuItem = new ToolStripMenuItem("E&xit", null, (_, _) => ExitApplication());
+        menu.Items.Add(_settingsMenuItem);
+        menu.Items.Add(_exitMenuItem);
         return menu;
     }
 
@@ -263,1037 +316,175 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         if (_settings.UpdateCheckFrequency != UpdateCheckFrequency.Never) _updateTimer.Start();
     }
 
-    private async Task CheckForUpdatesAsync(bool manual)
+    /// <summary>Checks GitHub. Manual checks report every outcome; automatic ones only offer an update.</summary>
+    private async Task<UpdateStatus> CheckForUpdatesAsync(bool manual)
     {
-        if (_checkingUpdate || _exiting || (!manual && _settings.UpdateCheckFrequency == UpdateCheckFrequency.Never)) return;
+        var current = Changelog.MarketingVersion;
+        if (_checkingUpdate) return new UpdateStatus(UpdateState.Checking, "Checking for updates…", "A check is already running");
+        if (_exiting) return new UpdateStatus(UpdateState.NotChecked, "Not checked", $"Version {current}");
+        if (!manual && _settings.UpdateCheckFrequency == UpdateCheckFrequency.Never)
+        {
+            return new UpdateStatus(UpdateState.NotChecked, "Automatic checks are off", $"Version {current}");
+        }
+
         _checkingUpdate = true;
         try
         {
-            var update = await _updates.CheckAsync(Version.Parse(GetDisplayVersion()), _updateCancellation.Token);
-            if (_exiting) return;
+            var update = await _updates.CheckAsync(Version.Parse(current), _updateCancellation.Token);
+            if (_exiting) return new UpdateStatus(UpdateState.NotChecked, "Not checked", $"Version {current}");
+            _settings.LastUpdateCheckUtc = DateTime.UtcNow;
+            TrySaveSettings("update check time");
+            var checkedAt = $"Last checked {DateTime.Now:yyyy-MM-dd HH:mm}";
+
             if (update is null)
             {
-                if (manual) MessageBox.Show($"You are running version {GetDisplayVersion()}.\n\nNo newer installer version is available.", AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
-                return;
+                if (manual) MessageDialog.Show($"You are running version {current}.\n\nNo newer installer version is available.", MessageKind.Info, owner: _settingsWindow);
+                return new UpdateStatus(UpdateState.UpToDate, $"{AppName} is up to date", $"Version {current} · {checkedAt}");
             }
-            if (!manual && _lastOfferedUpdate == update.Version) return;
+
+            var available = new UpdateStatus(UpdateState.Available, $"Version {update.Version.ToString(3)} is available",
+                $"You have {current} · {checkedAt}");
+            if (!manual && _lastOfferedUpdate == update.Version) return available;
             _lastOfferedUpdate = update.Version;
             ShowUpdateDialog(update);
+            return available;
         }
-        catch (OperationCanceledException) when (_exiting) { }
+        catch (OperationCanceledException) when (_exiting)
+        {
+            return new UpdateStatus(UpdateState.NotChecked, "Not checked", $"Version {current}");
+        }
         catch (Exception ex)
         {
-            if (_exiting) return;
             Log($"update check failed: {ex.Message}");
-            if (manual) MessageBox.Show($"Could not check for updates. Please try again later.\n\n{ex.Message}", AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            if (_exiting) return new UpdateStatus(UpdateState.NotChecked, "Not checked", $"Version {current}");
+            if (manual) MessageDialog.Show($"Could not check for updates. Please try again later.\n\n{ex.Message}", MessageKind.Warning, owner: _settingsWindow);
+            return new UpdateStatus(UpdateState.Failed, "Could not check for updates", $"Version {current} · {ex.Message}");
         }
         finally { _checkingUpdate = false; }
     }
 
     private void ShowUpdateDialog(AppUpdate update)
     {
-        using var dialog = new Form
+        if (_updateWindow is not null)
         {
-            Text = $"Update {AppName} (v{GetDisplayVersion()})", Icon = _trayIcon,
-            StartPosition = FormStartPosition.CenterScreen,
-            FormBorderStyle = FormBorderStyle.FixedDialog,
-            MaximizeBox = false, MinimizeBox = false,
-            ClientSize = new Size(470, 200),
-        };
-        var message = new Label
-        {
-            Text = $"Version {update.Version} is available. You have {GetDisplayVersion()}.\n\nUpdate will download and open the installer. Setup will close the app and restart it after updating.",
-            Location = new Point(18, 18), Size = new Size(434, 115),
-        };
-        var install = new Button { Text = "Update", Location = new Point(268, 152), Size = new Size(88, 30) };
-        var later = new Button { Text = "Later", Location = new Point(364, 152), Size = new Size(88, 30), DialogResult = DialogResult.Cancel };
-        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_updateCancellation.Token);
-        dialog.FormClosing += (_, _) => cancellation.Cancel();
-        install.Click += async (_, _) =>
-        {
-            install.Enabled = false;
-            message.Text = "Downloading and verifying the installer…";
-            using var attempt = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token);
-            attempt.CancelAfter(TimeSpan.FromMinutes(10));
-            try
-            {
-                var cache = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ClippedImageToPath", "Updates");
-                var installer = await _updates.DownloadAsync(update, cache, attempt.Token);
-                if (_exiting || dialog.IsDisposed) return;
-                _ = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = installer, UseShellExecute = true,
-                }) ?? throw new InvalidOperationException("Windows could not open the installer.");
-                dialog.Close();
-                // Stay running until setup requests exit, so cancelling setup leaves the app usable.
-            }
-            catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
-            catch (OperationCanceledException)
-            {
-                if (_exiting || dialog.IsDisposed) return;
-                Log("update download timed out");
-                message.Text = "The download timed out. Check your connection and click Update to try again.";
-                install.Enabled = true;
-            }
-            catch (Exception ex)
-            {
-                if (_exiting || dialog.IsDisposed) return;
-                Log($"update installation failed: {ex.Message}");
-                message.Text = $"Update failed. Please try again.\n\n{ex.Message}";
-                install.Enabled = true;
-            }
-        };
-        dialog.Controls.AddRange(new Control[] { message, install, later });
-        dialog.AcceptButton = install;
-        dialog.CancelButton = later;
-        _ = dialog.ShowDialog();
-    }
-
-    private void ShowSettingsDialog()
-    {
-        using var settingsForm = new Form
-        {
-            Text = $"{AppName} Settings (v{GetDisplayVersion()})",
-            Icon = _trayIcon,
-            StartPosition = FormStartPosition.CenterScreen,
-            FormBorderStyle = FormBorderStyle.FixedDialog,
-            MaximizeBox = false,
-            MinimizeBox = false,
-            ShowInTaskbar = false,
-            ClientSize = new Size(680, 390),
-        };
-
-        using var settingsToolTip = new ToolTip
-        {
-            InitialDelay = 400,
-            ReshowDelay = 100,
-            AutoPopDelay = 10000,
-            ShowAlways = true,
-        };
-
-        var folderLabel = new Label
-        {
-            Text = "Output folder:",
-            AutoSize = true,
-            Location = new Point(16, 20),
-        };
-
-        var folderText = new TextBox
-        {
-            Text = _settings.OutputDirectory,
-            Location = new Point(16, 42),
-            Size = new Size(500, 26),
-        };
-
-        var browseButton = new Button
-        {
-            Text = "Browse...",
-            Location = new Point(525, 40),
-            Size = new Size(80, 28),
-        };
-        browseButton.Click += (_, _) =>
-        {
-            using var picker = new FolderBrowserDialog
-            {
-                Description = "Choose where clipboard images will be saved",
-                SelectedPath = folderText.Text,
-                UseDescriptionForTitle = true,
-            };
-            if (picker.ShowDialog(settingsForm) == DialogResult.OK && !string.IsNullOrWhiteSpace(picker.SelectedPath))
-            {
-                folderText.Text = picker.SelectedPath;
-            }
-        };
-
-        var openFolderButton = new Button { Text = "Open output folder", Size = new Size(145, 30) };
-        openFolderButton.Click += (_, _) =>
-        {
-            try
-            {
-                var selectedPath = Path.GetFullPath(folderText.Text.Trim());
-                if (!Directory.Exists(selectedPath))
-                    throw new DirectoryNotFoundException("This folder does not exist. Save settings to create it first.");
-                _ = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = selectedPath, UseShellExecute = true,
-                });
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(settingsForm, $"Could not open the output folder.\n\n{ex.Message}", AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            }
-        };
-        settingsToolTip.SetToolTip(openFolderButton, "Open the folder currently selected above in File Explorer.");
-
-        var wslCheck = new CheckBox
-        {
-            Text = "Convert clipboard path to WSL format (/mnt/c/...)",
-            AutoSize = true,
-            Location = new Point(16, 84),
-            Checked = _settings.ConvertToWslPath,
-        };
-
-        var uploadCheck = new CheckBox
-        {
-            Text = "Remote upload enabled",
-            AutoSize = true,
-            Location = new Point(16, 148),
-            Checked = _settings.RemoteUploadEnabled,
-        };
-
-        var smartPasteCheck = new CheckBox
-        {
-            Text = "Paste saved image path with Shift+Insert",
-            AutoSize = true,
-            Location = new Point(16, 116),
-            Checked = _settings.SmartPasteEnabled,
-            Enabled = _pasteMonitor is not null,
-        };
-
-        var uploadReminderCheck = new CheckBox
-        {
-            Text = "Remind me every",
-            AutoSize = true,
-            Location = new Point(16, 180),
-            Checked = _settings.RemoteUploadReminderEnabled,
-        };
-
-        var uploadReminderMinutes = new NumericUpDown
-        {
-            Location = new Point(260, 177),
-            Size = new Size(70, 26),
-            Minimum = AppSettings.MinRemoteUploadReminderMinutes,
-            Maximum = AppSettings.MaxRemoteUploadReminderMinutes,
-            Value = _settings.RemoteUploadReminderMinutes,
-            TextAlign = HorizontalAlignment.Right,
-        };
-
-        var uploadReminderMinutesLabel = new Label
-        {
-            Text = "minutes",
-            AutoSize = true,
-            Location = new Point(337, 181),
-        };
-
-        void UpdateUploadReminderControls()
-        {
-            uploadReminderCheck.Enabled = uploadCheck.Checked;
-            uploadReminderMinutes.Enabled = uploadCheck.Checked && uploadReminderCheck.Checked;
-            uploadReminderMinutesLabel.Enabled = uploadReminderMinutes.Enabled;
-        }
-
-        uploadCheck.CheckedChanged += (_, _) => UpdateUploadReminderControls();
-        uploadReminderCheck.CheckedChanged += (_, _) => UpdateUploadReminderControls();
-        UpdateUploadReminderControls();
-
-        var sshButton = new Button
-        {
-            Text = "Remote servers...",
-            Location = new Point(16, 216),
-            Size = new Size(150, 30),
-        };
-        sshButton.Click += (_, _) => ShowRemoteServersDialog(settingsForm);
-
-        var updateLabel = new Label
-        {
-            Text = "Check for updates:", AutoSize = true, Location = new Point(16, 270),
-        };
-        var updateFrequency = new ComboBox
-        {
-            DropDownStyle = ComboBoxStyle.DropDownList,
-            Location = new Point(180, 266), Size = new Size(200, 26),
-            AccessibleName = "Check for updates",
-        };
-        var frequencies = new[] { UpdateCheckFrequency.Hourly, UpdateCheckFrequency.Daily, UpdateCheckFrequency.Weekly, UpdateCheckFrequency.Monthly, UpdateCheckFrequency.Never };
-        updateFrequency.Items.AddRange(new object[] { "Once an hour", "Once a day (default)", "Once a week", "Once a month", "Never" });
-        updateFrequency.SelectedIndex = Array.IndexOf(frequencies, UpdateSchedule.Normalize(_settings.UpdateCheckFrequency));
-        const string updateHelp = "Check at startup, then at this interval. Never disables all automatic checks. Use Check for updates here to check manually.";
-        settingsToolTip.SetToolTip(updateLabel, updateHelp);
-        settingsToolTip.SetToolTip(updateFrequency, updateHelp);
-
-        var checkUpdatesButton = new Button
-        {
-            Text = "Check for updates", Location = new Point(400, 264), Size = new Size(205, 30),
-        };
-        checkUpdatesButton.Click += async (_, _) =>
-        {
-            checkUpdatesButton.Enabled = false;
-            try { await CheckForUpdatesAsync(true); }
-            finally { if (!checkUpdatesButton.IsDisposed) checkUpdatesButton.Enabled = true; }
-        };
-        settingsToolTip.SetToolTip(checkUpdatesButton, "Check GitHub now, even when automatic checks are set to Never.");
-
-        var saveButton = new Button
-        {
-            Text = "Save",
-            Location = new Point(440, 325),
-            Size = new Size(80, 30),
-        };
-
-        var cancelButton = new Button
-        {
-            Text = "Cancel",
-            DialogResult = DialogResult.Cancel,
-            Location = new Point(525, 325),
-            Size = new Size(80, 30),
-        };
-
-        const string outputFolderHelp = "Folder where copied clipboard images are saved as PNG files.";
-        settingsToolTip.SetToolTip(folderLabel, outputFolderHelp);
-        settingsToolTip.SetToolTip(folderText, outputFolderHelp);
-        settingsToolTip.SetToolTip(browseButton, "Choose the folder where copied clipboard images are saved.");
-        settingsToolTip.SetToolTip(wslCheck, "Copy saved paths in /mnt/... format for use in WSL terminals.");
-        settingsToolTip.SetToolTip(smartPasteCheck, "Keep screenshots available for normal Ctrl+V, and paste the saved file path with Shift+Insert.");
-        settingsToolTip.SetToolTip(uploadCheck, "Upload each saved clipboard image to the selected remote server when enabled.");
-        settingsToolTip.SetToolTip(uploadReminderCheck, "Remind you that remote upload is still on so you can disable it when no longer needed.");
-        settingsToolTip.SetToolTip(uploadReminderMinutes, "Choose how often the remote upload notification appears, from 1 to 1,440 minutes.");
-        settingsToolTip.SetToolTip(uploadReminderMinutesLabel, "Choose how often the remote upload notification appears, from 1 to 1,440 minutes.");
-        settingsToolTip.SetToolTip(sshButton, "Add, edit, remove, select, and test remote server profiles.");
-        settingsToolTip.SetToolTip(saveButton, "Save these settings and apply them immediately.");
-        settingsToolTip.SetToolTip(cancelButton, "Close without saving changes.");
-
-        // Let native layout measure each row so labels cannot collide with their inputs.
-        FlowLayoutPanel Row(params Control[] controls)
-        {
-            var row = new FlowLayoutPanel
-            {
-                AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                WrapContents = false, Margin = new Padding(0, 0, 0, 6),
-            };
-            foreach (var control in controls)
-            {
-                control.Location = Point.Empty;
-                control.Margin = control is Label ? new Padding(0, 6, 10, 0) : new Padding(0, 0, 10, 0);
-                row.Controls.Add(control);
-            }
-            return row;
-        }
-
-        TabPage Section(string title, string description, params Control[] controls)
-        {
-            var content = new FlowLayoutPanel
-            {
-                AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                FlowDirection = FlowDirection.TopDown, WrapContents = false,
-                Dock = DockStyle.Top, Margin = Padding.Empty,
-            };
-            content.Controls.Add(new Label
-            {
-                Text = description, AutoSize = true, MaximumSize = new Size(570, 0),
-                Margin = new Padding(0, 0, 0, 20), ForeColor = SystemColors.GrayText,
-            });
-            foreach (var control in controls)
-            {
-                control.Location = Point.Empty;
-                control.Margin = new Padding(0, 0, 0, 14);
-                content.Controls.Add(control);
-            }
-            var page = new TabPage(title)
-            {
-                UseVisualStyleBackColor = true,
-                Padding = new Padding(22, 20, 22, 12),
-            };
-            page.Controls.Add(content);
-            return page;
-        }
-
-        folderText.Width = 315;
-        browseButton.Size = new Size(80, 30);
-        uploadReminderMinutes.Width = 80;
-        updateFrequency.Width = 200;
-        checkUpdatesButton.Width = 170;
-        var sections = new TabControl { Dock = DockStyle.Fill };
-        sections.TabPages.Add(Section("Saved images", "Choose where copied images are saved as PNG files.",
-            folderLabel, Row(folderText, browseButton, openFolderButton)));
-        sections.TabPages.Add(Section("Clipboard", "Choose how saved image paths are pasted.", wslCheck, smartPasteCheck));
-        sections.TabPages.Add(Section("Remote upload", "Upload saved images to your selected remote server.", uploadCheck,
-            Row(uploadReminderCheck, uploadReminderMinutes, uploadReminderMinutesLabel), sshButton));
-        sections.TabPages.Add(Section("Updates", "Choose when the app checks GitHub for newer releases.",
-            updateLabel, Row(updateFrequency, checkUpdatesButton)));
-        var contentArea = new Panel { Dock = DockStyle.Fill, Padding = new Padding(16, 12, 16, 0) };
-        contentArea.Controls.Add(sections);
-        var footer = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Bottom, Height = 60, FlowDirection = FlowDirection.RightToLeft,
-            Padding = new Padding(16, 10, 16, 10), WrapContents = false,
-        };
-        footer.Controls.Add(cancelButton);
-        footer.Controls.Add(saveButton);
-        settingsForm.Controls.Add(contentArea);
-        settingsForm.Controls.Add(footer);
-        settingsForm.AcceptButton = saveButton;
-        settingsForm.CancelButton = cancelButton;
-
-        // Validate and write inside the click so a failure keeps the window open with the edits.
-        saveButton.Click += (_, _) =>
-        {
-            var selectedFolder = folderText.Text.Trim();
-            if (string.IsNullOrWhiteSpace(selectedFolder))
-            {
-                MessageBox.Show(settingsForm, "Output folder cannot be empty.", AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                folderText.Focus();
-                return;
-            }
-
-            var previous = (
-                _settings.OutputDirectory, _settings.ConvertToWslPath, _settings.SmartPasteEnabled,
-                _settings.RemoteUploadEnabled, _settings.RemoteUploadReminderEnabled,
-                _settings.RemoteUploadReminderMinutes, _settings.UpdateCheckFrequency);
-            try
-            {
-                var fullFolder = Path.GetFullPath(selectedFolder);
-                Directory.CreateDirectory(fullFolder);
-                _settings.OutputDirectory = fullFolder;
-                _settings.ConvertToWslPath = wslCheck.Checked;
-                _settings.SmartPasteEnabled = smartPasteCheck.Checked;
-                _settings.RemoteUploadEnabled = uploadCheck.Checked;
-                _settings.RemoteUploadReminderEnabled = uploadReminderCheck.Checked;
-                _settings.RemoteUploadReminderMinutes = Decimal.ToInt32(uploadReminderMinutes.Value);
-                _settings.UpdateCheckFrequency = frequencies[updateFrequency.SelectedIndex];
-                _settings.Save();
-            }
-            catch (Exception ex)
-            {
-                (_settings.OutputDirectory, _settings.ConvertToWslPath, _settings.SmartPasteEnabled,
-                    _settings.RemoteUploadEnabled, _settings.RemoteUploadReminderEnabled,
-                    _settings.RemoteUploadReminderMinutes, _settings.UpdateCheckFrequency) = previous;
-                Log($"settings save failed: {ex.Message}");
-                MessageBox.Show(settingsForm, $"Failed to save settings: {ex.Message}", AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-
-            ApplyUpdateSchedule();
-            UpdateRemoteUploadReminderTimer();
-            RefreshIdleTrayIcon();
-            Log("settings updated");
-            settingsForm.DialogResult = DialogResult.OK;
-        };
-
-        settingsForm.ShowDialog();
-    }
-
-    private static readonly RemoteProtocol[] ProtocolOrder =
-    {
-        RemoteProtocol.Sftp,
-        RemoteProtocol.Ftp,
-        RemoteProtocol.FtpsExplicit,
-        RemoteProtocol.FtpsImplicit,
-    };
-
-    private static readonly string[] ProtocolLabels =
-    {
-        "SFTP (SSH)",
-        "FTP (plain)",
-        "FTPS (explicit TLS)",
-        "FTPS (implicit TLS)",
-    };
-
-    private static int DefaultPortFor(RemoteProtocol protocol) => protocol switch
-    {
-        RemoteProtocol.Sftp => 22,
-        RemoteProtocol.Ftp => 21,
-        RemoteProtocol.FtpsExplicit => 21,
-        RemoteProtocol.FtpsImplicit => 990,
-        _ => 22,
-    };
-
-    private void ShowRemoteServersDialog(IWin32Window owner)
-    {
-        using var form = new Form
-        {
-            Text = "Remote Servers",
-            Icon = _trayIcon,
-            StartPosition = FormStartPosition.CenterParent,
-            FormBorderStyle = FormBorderStyle.FixedDialog,
-            MaximizeBox = false,
-            MinimizeBox = false,
-            ShowInTaskbar = false,
-            ClientSize = new Size(540, 410),
-        };
-
-        // Edit a draft copy; nothing is written until Save.
-        var servers = _settings.RemoteServers.Select(s => s.Clone()).ToList();
-        var activeServer = _settings.ActiveServer;
-
-        var hint = new Label
-        {
-            Text = "The server marked ● is used for uploads. Double-click to edit.",
-            AutoSize = true,
-            Location = new Point(16, 12),
-        };
-
-        var list = new ListBox
-        {
-            Location = new Point(16, 36),
-            Size = new Size(380, 300),
-            IntegralHeight = false,
-        };
-
-        void Reload(int selectIndex)
-        {
-            list.BeginUpdate();
-            list.Items.Clear();
-            foreach (var server in servers)
-            {
-                var active = string.Equals(server.Name, activeServer, StringComparison.Ordinal);
-                list.Items.Add((active ? "● " : "    ") + server.DisplayLine());
-            }
-
-            list.EndUpdate();
-
-            if (list.Items.Count == 0)
-            {
-                return;
-            }
-
-            list.SelectedIndex = Math.Clamp(selectIndex, 0, list.Items.Count - 1);
-        }
-
-        RemoteServer? Selected() =>
-            list.SelectedIndex >= 0 && list.SelectedIndex < servers.Count
-                ? servers[list.SelectedIndex]
-                : null;
-
-        const int buttonX = 408;
-        const int buttonWidth = 116;
-
-        var addButton = new Button { Text = "Add...", Location = new Point(buttonX, 36), Size = new Size(buttonWidth, 30) };
-        var editButton = new Button { Text = "Edit...", Location = new Point(buttonX, 72), Size = new Size(buttonWidth, 30) };
-        var removeButton = new Button { Text = "Remove", Location = new Point(buttonX, 108), Size = new Size(buttonWidth, 30) };
-        var activeButton = new Button { Text = "Set as active", Location = new Point(buttonX, 158), Size = new Size(buttonWidth, 30) };
-        var testButton = new Button { Text = "Test", Location = new Point(buttonX, 194), Size = new Size(buttonWidth, 30) };
-        var saveButton = new Button { Text = "Save", Location = new Point(346, 362), Size = new Size(85, 30) };
-        var cancelButton = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, Location = new Point(439, 362), Size = new Size(85, 30) };
-
-        saveButton.Click += (_, _) =>
-        {
-            var previousServers = _settings.RemoteServers.ToList();
-            var previousActive = _settings.ActiveServer;
-            _settings.RemoteServers.Clear();
-            _settings.RemoteServers.AddRange(servers);
-            _settings.ActiveServer = activeServer;
-            try
-            {
-                _settings.Save();
-            }
-            catch (Exception ex)
-            {
-                _settings.RemoteServers.Clear();
-                _settings.RemoteServers.AddRange(previousServers);
-                _settings.ActiveServer = previousActive;
-                Log($"remote servers save failed: {ex.Message}");
-                MessageBox.Show(form, $"Failed to save remote servers: {ex.Message}", AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-
-            Log($"remote servers updated: {servers.Count} server(s), active '{activeServer}'");
-            form.DialogResult = DialogResult.OK;
-        };
-
-        addButton.Click += (_, _) =>
-        {
-            var server = new RemoteServer
-            {
-                Name = SuggestServerName(servers),
-                Protocol = RemoteProtocol.Sftp.ToString(),
-                Port = DefaultPortFor(RemoteProtocol.Sftp),
-            };
-            if (EditRemoteServer(form, server, servers, isNew: true))
-            {
-                servers.Add(server);
-                if (servers.Count == 1)
-                {
-                    activeServer = server.Name;
-                }
-
-                Reload(servers.Count - 1);
-            }
-        };
-
-        void EditSelected()
-        {
-            var server = Selected();
-            if (server is null)
-            {
-                return;
-            }
-
-            var previousName = server.Name;
-            var index = list.SelectedIndex;
-            if (EditRemoteServer(form, server, servers, isNew: false))
-            {
-                // Keep the active pointer aligned if the active server was renamed.
-                if (string.Equals(activeServer, previousName, StringComparison.Ordinal))
-                {
-                    activeServer = server.Name;
-                }
-
-                Reload(index);
-            }
-        }
-
-        editButton.Click += (_, _) => EditSelected();
-        list.DoubleClick += (_, _) => EditSelected();
-
-        removeButton.Click += (_, _) =>
-        {
-            var server = Selected();
-            if (server is null)
-            {
-                return;
-            }
-
-            var confirm = MessageBox.Show(
-                $"Remove server '{server.Name}'?",
-                AppName,
-                MessageBoxButtons.YesNo,
-                MessageBoxIcon.Question);
-            if (confirm != DialogResult.Yes)
-            {
-                return;
-            }
-
-            var index = list.SelectedIndex;
-            var wasActive = string.Equals(activeServer, server.Name, StringComparison.Ordinal);
-            servers.Remove(server);
-            if (wasActive)
-            {
-                activeServer = servers.Count > 0 ? servers[0].Name : string.Empty;
-            }
-
-            Reload(index);
-        };
-
-        activeButton.Click += (_, _) =>
-        {
-            var server = Selected();
-            if (server is null)
-            {
-                return;
-            }
-
-            activeServer = server.Name;
-            Reload(list.SelectedIndex);
-        };
-
-        testButton.Click += async (_, _) =>
-        {
-            var server = Selected();
-            if (server is null)
-            {
-                return;
-            }
-
-            if (!server.TryGetConfig(out var config, out var error))
-            {
-                MessageBox.Show(error, AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-
-            testButton.Enabled = false;
-            testButton.Text = "Testing...";
-            try
-            {
-                await Task.Run(() => RemoteUploader.TestConnection(config));
-                MessageBox.Show("Connection succeeded and the remote directory is available.", AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Connection test failed: {ex.Message}", AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-            finally
-            {
-                testButton.Text = "Test";
-                testButton.Enabled = true;
-            }
-        };
-
-        form.Controls.Add(hint);
-        form.Controls.Add(list);
-        form.Controls.Add(addButton);
-        form.Controls.Add(editButton);
-        form.Controls.Add(removeButton);
-        form.Controls.Add(activeButton);
-        form.Controls.Add(testButton);
-        form.Controls.Add(saveButton);
-        form.Controls.Add(cancelButton);
-        form.AcceptButton = saveButton;
-        form.CancelButton = cancelButton;
-
-        Reload(servers.FindIndex(s => string.Equals(s.Name, activeServer, StringComparison.Ordinal)));
-        form.ShowDialog(owner);
-        RefreshIdleTrayIcon();
-    }
-
-    private static string SuggestServerName(List<RemoteServer> servers)
-    {
-        for (var i = 1; ; i++)
-        {
-            var candidate = $"Server {i}";
-            if (!servers.Any(s => string.Equals(s.Name, candidate, StringComparison.OrdinalIgnoreCase)))
-            {
-                return candidate;
-            }
-        }
-    }
-
-    // Edits the given server in place. Returns true only when the user saves valid values.
-    private bool EditRemoteServer(IWin32Window owner, RemoteServer server, List<RemoteServer> servers, bool isNew)
-    {
-        using var sshForm = new Form
-        {
-            Text = isNew ? "Add Remote Server" : "Edit Remote Server",
-            Icon = _trayIcon,
-            StartPosition = FormStartPosition.CenterParent,
-            FormBorderStyle = FormBorderStyle.FixedDialog,
-            MaximizeBox = false,
-            MinimizeBox = false,
-            ShowInTaskbar = false,
-            ClientSize = new Size(460, 394),
-        };
-
-        var nameText = AddLabeledTextBox(sshForm, "Name:", server.Name, 16, false);
-        var protocolCombo = AddLabeledComboBox(sshForm, "Protocol:", ProtocolLabels, 58);
-        var currentProtocol = server.GetProtocol();
-        protocolCombo.SelectedIndex = Math.Max(0, Array.IndexOf(ProtocolOrder, currentProtocol));
-
-        var hostText = AddLabeledTextBox(sshForm, "Host:", server.Host, 100, false);
-        var portText = AddLabeledTextBox(sshForm, "Port:", server.Port.ToString(), 142, false);
-        var userText = AddLabeledTextBox(sshForm, "User:", server.User, 184, false);
-        var passwordText = AddLabeledTextBox(sshForm, "Password:", server.GetPassword(), 226, true);
-        var remoteDirectoryText = AddLabeledTextBox(sshForm, "Remote directory:", server.RemoteDirectory, 268, false);
-
-        var passiveCheck = new CheckBox
-        {
-            Text = "Use passive mode (FTP/FTPS)",
-            AutoSize = true,
-            Location = new Point(140, 314),
-            Checked = server.PassiveMode,
-        };
-        sshForm.Controls.Add(passiveCheck);
-
-        // When the user switches protocol, follow that protocol's conventional port if the
-        // field still holds another protocol's default (i.e. it was never customized).
-        var lastProtocol = currentProtocol;
-        protocolCombo.SelectedIndexChanged += (_, _) =>
-        {
-            var newProtocol = ProtocolOrder[protocolCombo.SelectedIndex];
-            if (int.TryParse(portText.Text.Trim(), out var currentPort) && currentPort == DefaultPortFor(lastProtocol))
-            {
-                portText.Text = DefaultPortFor(newProtocol).ToString();
-            }
-
-            lastProtocol = newProtocol;
-        };
-
-        RemoteProtocol SelectedProtocol() => ProtocolOrder[protocolCombo.SelectedIndex];
-
-        var testButton = new Button
-        {
-            Text = "Test connection",
-            Location = new Point(16, 350),
-            Size = new Size(120, 30),
-        };
-
-        var saveButton = new Button
-        {
-            Text = "Save",
-            Location = new Point(275, 350),
-            Size = new Size(80, 30),
-        };
-
-        var cancelButton = new Button
-        {
-            Text = "Cancel",
-            DialogResult = DialogResult.Cancel,
-            Location = new Point(365, 350),
-            Size = new Size(80, 30),
-        };
-
-        testButton.Click += async (_, _) =>
-        {
-            if (!TryReadSshDialogValues(SelectedProtocol(), passiveCheck.Checked, hostText, portText, userText, passwordText, remoteDirectoryText, out var config, out var error))
-            {
-                MessageBox.Show(error, AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-
-            testButton.Enabled = false;
-            testButton.Text = "Testing...";
-            try
-            {
-                await Task.Run(() => RemoteUploader.TestConnection(config));
-                MessageBox.Show("Connection succeeded and the remote directory is available.", AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Connection test failed: {ex.Message}", AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-            finally
-            {
-                testButton.Text = "Test connection";
-                testButton.Enabled = true;
-            }
-        };
-
-        saveButton.Click += (_, _) =>
-        {
-            var name = nameText.Text.Trim();
-            if (string.IsNullOrWhiteSpace(name))
-            {
-                MessageBox.Show("Name cannot be empty.", AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-
-            if (servers.Any(s => !ReferenceEquals(s, server) && string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase)))
-            {
-                MessageBox.Show($"A server named '{name}' already exists.", AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-
-            if (!TryReadSshDialogValues(SelectedProtocol(), passiveCheck.Checked, hostText, portText, userText, passwordText, remoteDirectoryText, out var config, out var error))
-            {
-                MessageBox.Show(error, AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-
-            server.Name = name;
-            server.SetProtocol(config.Protocol);
-            server.PassiveMode = config.PassiveMode;
-            server.Host = config.Host;
-            server.Port = config.Port;
-            server.User = config.User;
-            server.SetPassword(config.Password);
-            server.RemoteDirectory = config.RemoteDirectory;
-            sshForm.DialogResult = DialogResult.OK;
-        };
-
-        sshForm.Controls.Add(testButton);
-        sshForm.Controls.Add(saveButton);
-        sshForm.Controls.Add(cancelButton);
-        sshForm.AcceptButton = saveButton;
-        sshForm.CancelButton = cancelButton;
-
-        return sshForm.ShowDialog(owner) == DialogResult.OK;
-    }
-
-    private static ComboBox AddLabeledComboBox(Form form, string labelText, string[] items, int y)
-    {
-        var label = new Label
-        {
-            Text = labelText,
-            AutoSize = true,
-            Location = new Point(16, y + 4),
-        };
-
-        var combo = new ComboBox
-        {
-            Location = new Point(140, y),
-            Size = new Size(305, 26),
-            DropDownStyle = ComboBoxStyle.DropDownList,
-        };
-        combo.Items.AddRange(items);
-
-        form.Controls.Add(label);
-        form.Controls.Add(combo);
-        return combo;
-    }
-
-    private static TextBox AddLabeledTextBox(Form form, string labelText, string value, int y, bool usePasswordChar)
-    {
-        var label = new Label
-        {
-            Text = labelText,
-            AutoSize = true,
-            Location = new Point(16, y + 4),
-        };
-
-        var textBox = new TextBox
-        {
-            Text = value,
-            Location = new Point(140, y),
-            Size = new Size(305, 26),
-            UseSystemPasswordChar = usePasswordChar,
-        };
-
-        form.Controls.Add(label);
-        form.Controls.Add(textBox);
-        return textBox;
-    }
-
-    private static bool TryReadSshDialogValues(
-        RemoteProtocol protocol,
-        bool passiveMode,
-        TextBox hostText,
-        TextBox portText,
-        TextBox userText,
-        TextBox passwordText,
-        TextBox remoteDirectoryText,
-        out RemoteUploadConfig config,
-        out string error)
-    {
-        config = default;
-        error = string.Empty;
-
-        var host = hostText.Text.Trim();
-        var user = userText.Text.Trim();
-        var password = passwordText.Text;
-        var remoteDirectory = remoteDirectoryText.Text.Trim();
-
-        if (string.IsNullOrWhiteSpace(host))
-        {
-            error = "Host cannot be empty.";
-            return false;
-        }
-
-        if (!int.TryParse(portText.Text.Trim(), out var port) || port <= 0 || port > 65535)
-        {
-            error = "Port must be a number from 1 to 65535.";
-            return false;
-        }
-
-        if (string.IsNullOrWhiteSpace(user))
-        {
-            error = "User cannot be empty.";
-            return false;
-        }
-
-        if (string.IsNullOrWhiteSpace(password))
-        {
-            error = "Password cannot be empty.";
-            return false;
-        }
-
-        if (string.IsNullOrWhiteSpace(remoteDirectory))
-        {
-            error = "Remote directory cannot be empty.";
-            return false;
-        }
-
-        config = new RemoteUploadConfig(protocol, host, port, user, password, remoteDirectory, passiveMode);
-        return true;
-    }
-
-    private void ShowAboutDialog()
-    {
-        var version = GetDisplayVersion();
-
-        using var about = new Form
-        {
-            Text = $"About {AppName}",
-            Icon = _trayIcon,
-            StartPosition = FormStartPosition.CenterScreen,
-            FormBorderStyle = FormBorderStyle.FixedDialog,
-            MaximizeBox = false,
-            MinimizeBox = false,
-            ShowInTaskbar = false,
-            ClientSize = new Size(600, 330),
-        };
-
-        using var titleImage = _trayIcon.ToBitmap();
-        var titleIcon = new PictureBox
-        {
-            Image = titleImage,
-            SizeMode = PictureBoxSizeMode.Zoom,
-            Location = new Point(18, 14),
-            Size = new Size(32, 32),
-            TabStop = false,
-        };
-        var title = new Label
-        {
-            AutoSize = false,
-            Font = new Font(SystemFonts.MessageBoxFont ?? Control.DefaultFont, FontStyle.Bold),
-            Location = new Point(60, 18),
-            Size = new Size(about.ClientSize.Width - 78, 24),
-            Text = AppName,
-        };
-
-        var details = new TableLayoutPanel
-        {
-            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-            AutoSize = true,
-            ColumnCount = 2,
-            Location = new Point(18, 54),
-            RowCount = 5,
-            Width = about.ClientSize.Width - 36,
-        };
-        details.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 125));
-        details.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-
-        AddAboutRow(details, 0, "Version", version);
-        AddAboutRow(details, 1, "Build date", File.GetLastWriteTime(Application.ExecutablePath).ToString("yyyy-MM-dd HH:mm:ss"));
-        AddAboutRow(details, 2, "EXE path", Application.ExecutablePath, selectable: true);
-        AddAboutRow(details, 3, "Build summary", "Windows installer and executable location in About.");
-        AddAboutRow(details, 4, "Copyright", $"(c) {DateTime.Now.Year} Alex LV");
-
-        var close = new Button
-        {
-            Text = "Close",
-            DialogResult = DialogResult.OK,
-            Anchor = AnchorStyles.Bottom | AnchorStyles.Right,
-            Size = new Size(80, 28),
-            Location = new Point(about.ClientSize.Width - 96, about.ClientSize.Height - 44),
-        };
-
-        about.Controls.Add(titleIcon);
-        about.Controls.Add(title);
-        about.Controls.Add(details);
-        about.Controls.Add(close);
-        about.AcceptButton = close;
-        // Keep initial focus off the read-only path so Windows does not select it all.
-        about.ActiveControl = close;
-
-        _ = about.ShowDialog();
-    }
-
-    private static string GetDisplayVersion()
-    {
-        var version = Assembly.GetExecutingAssembly()
-            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
-            ?? Assembly.GetExecutingAssembly().GetName().Version?.ToString()
-            ?? "unknown";
-
-        var suffixIndex = version.IndexOf('+');
-        return suffixIndex >= 0 ? version[..suffixIndex] : version;
-    }
-
-    private static void AddAboutRow(TableLayoutPanel table, int row, string label, string value, bool selectable = false)
-    {
-        table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-
-        table.Controls.Add(new Label
-        {
-            AutoSize = true,
-            Font = new Font(SystemFonts.MessageBoxFont ?? Control.DefaultFont, FontStyle.Bold),
-            Margin = new Padding(0, 0, 12, 8),
-            Text = $"{label}:",
-        }, 0, row);
-
-        if (selectable)
-        {
-            table.Controls.Add(new TextBox
-            {
-                ReadOnly = true,
-                Multiline = true,
-                WordWrap = true,
-                ScrollBars = ScrollBars.Vertical,
-                Anchor = AnchorStyles.Left | AnchorStyles.Right,
-                Height = 60,
-                Margin = new Padding(0, 0, 0, 8),
-                Text = value,
-                AccessibleName = label,
-            }, 1, row);
+            _updateWindow.Activate();
             return;
         }
 
-        table.Controls.Add(new Label
+        _updateWindow = new UpdateWindow(update, _updates, _updateCancellation.Token, Log);
+        try
         {
-            AutoSize = true,
-            Anchor = AnchorStyles.Left | AnchorStyles.Right,
-            Margin = new Padding(0, 0, 0, 8),
-            MaximumSize = new Size(460, 0),
-            Text = value,
-        }, 1, row);
+            _updateWindow.ShowDialog();
+        }
+        finally
+        {
+            _updateWindow = null;
+        }
+    }
+
+    /// <summary>Saves background state (toggles, check time) without failing the caller.</summary>
+    private void TrySaveSettings(string what)
+    {
+        try
+        {
+            _settings.Save();
+        }
+        catch (Exception ex)
+        {
+            Log($"saving {what} failed: {ex.Message}");
+        }
+    }
+
+    private void ShowSettings()
+    {
+        if (_settingsWindow is not null)
+        {
+            WinFormsHosting.ShowModeless(_settingsWindow);
+            return;
+        }
+
+        var host = new SettingsHost(
+            SmartPasteAvailable: _pasteMonitor is not null,
+            FileNameExample: $"{FilePrefix}{DateTime.Now:yyyy-MM-dd_HH-mm-ss_fff}{FileExtension}",
+            KeepLatest: KeepLatestN,
+            LogFilePath: LogFilePath,
+            Running: () => _settings,
+            Save: SaveSettingsDraft,
+            CheckForUpdates: () => CheckForUpdatesAsync(true),
+            ManageServers: ShowRemoteServers);
+
+        // A copy, so Cancel really cancels.
+        _settingsWindow = new SettingsWindow(_settings.Clone(), host);
+        _settingsWindow.Closed += (_, _) => _settingsWindow = null;
+        WinFormsHosting.ShowModeless(_settingsWindow);
+    }
+
+    /// <summary>
+    /// Commits the Settings draft: validates and writes before the window closes, so a failure keeps it
+    /// open with the edits and leaves the running settings unchanged. Returns the error, or null.
+    /// </summary>
+    private string? SaveSettingsDraft(AppSettings draft)
+    {
+        var previous = (
+            _settings.OutputDirectory, _settings.ConvertToWslPath, _settings.SmartPasteEnabled,
+            _settings.RemoteUploadEnabled, _settings.RemoteUploadReminderEnabled,
+            _settings.RemoteUploadReminderMinutes, _settings.UpdateCheckFrequency, _settings.Theme);
+        try
+        {
+            var fullFolder = Path.GetFullPath(draft.OutputDirectory);
+            Directory.CreateDirectory(fullFolder);
+            _settings.OutputDirectory = fullFolder;
+            _settings.ConvertToWslPath = draft.ConvertToWslPath;
+            _settings.SmartPasteEnabled = draft.SmartPasteEnabled;
+            _settings.RemoteUploadEnabled = draft.RemoteUploadEnabled;
+            _settings.RemoteUploadReminderEnabled = draft.RemoteUploadReminderEnabled;
+            _settings.RemoteUploadReminderMinutes = draft.RemoteUploadReminderMinutes;
+            _settings.UpdateCheckFrequency = draft.UpdateCheckFrequency;
+            _settings.Theme = draft.Theme;
+            _settings.Save();
+        }
+        catch (Exception ex)
+        {
+            (_settings.OutputDirectory, _settings.ConvertToWslPath, _settings.SmartPasteEnabled,
+                _settings.RemoteUploadEnabled, _settings.RemoteUploadReminderEnabled,
+                _settings.RemoteUploadReminderMinutes, _settings.UpdateCheckFrequency, _settings.Theme) = previous;
+            Log($"settings save failed: {ex.Message}");
+            return ex.Message;
+        }
+
+        ApplyUpdateSchedule();
+        UpdateRemoteUploadReminderTimer();
+        RefreshIdleTrayIcon();
+        ThemeManager.Apply(_settings.Theme);
+        Log("settings updated");
+        return null;
+    }
+
+    private void ShowRemoteServers(System.Windows.Window owner)
+    {
+        var window = new RemoteServersWindow(_settings, (servers, active) =>
+        {
+            var previousServers = _settings.RemoteServers.ToList();
+            var previousActive = _settings.ActiveServer;
+            _settings.RemoteServers = servers.Select(s => s.Clone()).ToList();
+            _settings.ActiveServer = active;
+            try
+            {
+                _settings.Save();
+            }
+            catch (Exception ex)
+            {
+                _settings.RemoteServers = previousServers;
+                _settings.ActiveServer = previousActive;
+                Log($"remote servers save failed: {ex.Message}");
+                return ex.Message;
+            }
+
+            Log($"remote servers updated: {servers.Count} server(s), active '{active}'");
+            return null;
+        }) { Owner = owner };
+        window.ShowDialog();
+        RefreshIdleTrayIcon();
     }
 
     private void HandleClipboardUpdate()
@@ -1585,7 +776,7 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
     private void ToggleRemoteUpload()
     {
         _settings.RemoteUploadEnabled = !_settings.RemoteUploadEnabled;
-        _settings.Save();
+        TrySaveSettings("remote upload toggle");
         RefreshIdleTrayIcon();
         RebuildActiveServerMenu();
         Log($"remote upload {(_settings.RemoteUploadEnabled ? "enabled" : "disabled")}");
@@ -1668,6 +859,7 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         {
             _activeServerMenuItem.Text = "Active server: (none)";
             _activeServerMenuItem.DropDownItems.Add(new ToolStripMenuItem("(no servers configured)") { Enabled = false });
+            StyleActiveServerMenu();
             return;
         }
 
@@ -1684,13 +876,39 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
             item.Click += (_, _) =>
             {
                 _settings.ActiveServer = captured.Name;
-                _settings.Save();
+                TrySaveSettings("active server");
                 RefreshIdleTrayIcon();
                 Log($"active server -> {captured.Name}");
             };
             _activeServerMenuItem.DropDownItems.Add(item);
         }
+
+        StyleActiveServerMenu();
     }
+
+    // The kit styles the top-level tray menu; draw the submenu with the same renderer and colors.
+    private void StyleActiveServerMenu()
+    {
+        if (_activeServerMenuItem is null || _notifyIcon?.ContextMenuStrip is not { } menu) return;
+        var dropDown = _activeServerMenuItem.DropDown;
+        dropDown.Renderer = menu.Renderer;
+        dropDown.BackColor = menu.BackColor;
+        dropDown.Font = menu.Font;
+        dropDown.Padding = menu.Padding;
+        foreach (ToolStripItem item in dropDown.Items)
+        {
+            item.ForeColor = menu.ForeColor;
+            item.Padding = new Padding(2, 5, 2, 5);
+        }
+
+        if (!_styledDropDowns.Contains(dropDown))
+        {
+            _styledDropDowns.Add(dropDown);
+            dropDown.Opened += (_, _) => ThemeManager.RoundCorners(dropDown.Handle);
+        }
+    }
+
+    private readonly HashSet<ToolStripDropDown> _styledDropDowns = new();
 
     private void UpdateUploadTrayStatus()
     {
@@ -2243,435 +1461,6 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         }
     }
 }
-
-internal sealed class AppSettings
-{
-    internal const int DefaultRemoteUploadReminderMinutes = 30;
-    internal const int MinRemoteUploadReminderMinutes = 1;
-    internal const int MaxRemoteUploadReminderMinutes = 24 * 60;
-
-    public string OutputDirectory { get; set; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
-        "ClipboardImages");
-
-    public UpdateCheckFrequency UpdateCheckFrequency { get; set; } = UpdateCheckFrequency.Daily;
-
-    public bool ConvertToWslPath { get; set; }
-
-    public bool SmartPasteEnabled { get; set; } = true;
-
-    public bool RemoteUploadEnabled { get; set; }
-
-    public bool RemoteUploadReminderEnabled { get; set; } = true;
-
-    public int RemoteUploadReminderMinutes { get; set; } = DefaultRemoteUploadReminderMinutes;
-
-    // Named remote server profiles. The one whose Name matches ActiveServer is used for uploads.
-    public List<RemoteServer> RemoteServers { get; set; } = new();
-
-    // Name of the currently selected server profile.
-    public string ActiveServer { get; set; } = string.Empty;
-
-    // --- Legacy single-server fields (nullable, read only for one-time migration into RemoteServers).
-    // They are set to null after migration and omitted from the saved file.
-    public string? Protocol { get; set; }
-
-    public bool? PassiveMode { get; set; }
-
-    public string? SshHost { get; set; }
-
-    public int? SshPort { get; set; }
-
-    public string? SshUser { get; set; }
-
-    public string? SshPasswordBase64 { get; set; }
-
-    public string? RemoteDirectory { get; set; }
-
-    private static string SettingsDirectory => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "ClippedImageToPath");
-
-    private static string SettingsFilePath => Path.Combine(SettingsDirectory, "settings.json");
-
-    internal static AppSettings Load()
-    {
-        try
-        {
-            if (!File.Exists(SettingsFilePath))
-            {
-                return new AppSettings();
-            }
-
-            var json = File.ReadAllText(SettingsFilePath);
-            var parsed = JsonSerializer.Deserialize<AppSettings>(json);
-            if (parsed is null || string.IsNullOrWhiteSpace(parsed.OutputDirectory))
-            {
-                return new AppSettings();
-            }
-
-            parsed.OutputDirectory = Path.GetFullPath(parsed.OutputDirectory);
-            parsed.RemoteServers ??= new List<RemoteServer>();
-            parsed.NormalizeRemoteUploadReminder();
-            parsed.MigrateLegacyServer();
-            parsed.NormalizeServers();
-            var passwordsUpgraded = parsed.UpgradePasswordStorage();
-
-            if (parsed.RemoteServers.Count > 0 &&
-                !parsed.RemoteServers.Any(s => string.Equals(s.Name, parsed.ActiveServer, StringComparison.Ordinal)))
-            {
-                parsed.ActiveServer = parsed.RemoteServers[0].Name;
-            }
-
-            if (passwordsUpgraded)
-            {
-                // Re-encrypt legacy plaintext-base64 passwords with DPAPI and drop the old field.
-                try
-                {
-                    parsed.Save();
-                }
-                catch
-                {
-                    // Best-effort upgrade; GetPassword still reads the in-memory value this session.
-                }
-            }
-
-            return parsed;
-        }
-        catch
-        {
-            return new AppSettings();
-        }
-    }
-
-    private void NormalizeRemoteUploadReminder()
-    {
-        if (RemoteUploadReminderMinutes < MinRemoteUploadReminderMinutes ||
-            RemoteUploadReminderMinutes > MaxRemoteUploadReminderMinutes)
-        {
-            RemoteUploadReminderMinutes = DefaultRemoteUploadReminderMinutes;
-        }
-    }
-
-    // Fold a pre-1.3 single-server configuration into the RemoteServers list.
-    private void MigrateLegacyServer()
-    {
-        if (RemoteServers.Count == 0 && !string.IsNullOrWhiteSpace(SshHost))
-        {
-            var migrated = new RemoteServer
-            {
-                Name = SshHost!,
-                Protocol = string.IsNullOrWhiteSpace(Protocol) ? "Sftp" : Protocol!,
-                PassiveMode = PassiveMode ?? true,
-                Host = SshHost!,
-                Port = (SshPort is > 0 and <= 65535) ? SshPort.Value : 22,
-                User = SshUser ?? string.Empty,
-                PasswordBase64 = SshPasswordBase64 ?? string.Empty,
-                RemoteDirectory = string.IsNullOrWhiteSpace(RemoteDirectory) ? "." : RemoteDirectory!,
-            };
-            RemoteServers.Add(migrated);
-            if (string.IsNullOrWhiteSpace(ActiveServer))
-            {
-                ActiveServer = migrated.Name;
-            }
-        }
-
-        // Drop legacy fields so they no longer serialize.
-        Protocol = null;
-        PassiveMode = null;
-        SshHost = null;
-        SshPort = null;
-        SshUser = null;
-        SshPasswordBase64 = null;
-        RemoteDirectory = null;
-    }
-
-    private void NormalizeServers()
-    {
-        foreach (var server in RemoteServers)
-        {
-            server.Name ??= string.Empty;
-            if (server.Port <= 0 || server.Port > 65535)
-            {
-                server.Port = 22;
-            }
-
-            if (string.IsNullOrWhiteSpace(server.RemoteDirectory))
-            {
-                server.RemoteDirectory = ".";
-            }
-
-            if (string.IsNullOrWhiteSpace(server.Protocol))
-            {
-                server.Protocol = "Sftp";
-            }
-        }
-    }
-
-    // Re-encrypt any legacy plaintext-base64 passwords with DPAPI.
-    // Returns true if any server's stored password representation changed.
-    private bool UpgradePasswordStorage()
-    {
-        var changed = false;
-        foreach (var server in RemoteServers)
-        {
-            if (server.UpgradePasswordStorage())
-            {
-                changed = true;
-            }
-        }
-
-        return changed;
-    }
-
-    internal void Save()
-    {
-        Directory.CreateDirectory(SettingsDirectory);
-        var options = new JsonSerializerOptions
-        {
-            WriteIndented = true,
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        };
-        var json = JsonSerializer.Serialize(this, options);
-        var temp = SettingsFilePath + ".tmp";
-        File.WriteAllText(temp, json);
-        File.Move(temp, SettingsFilePath, overwrite: true);
-    }
-
-    internal RemoteServer? GetActiveServer()
-    {
-        if (RemoteServers.Count == 0)
-        {
-            return null;
-        }
-
-        return RemoteServers.FirstOrDefault(s => string.Equals(s.Name, ActiveServer, StringComparison.Ordinal))
-            ?? RemoteServers[0];
-    }
-
-    internal bool TryGetRemoteUploadConfig(out RemoteUploadConfig config, out string error)
-    {
-        config = default;
-        error = string.Empty;
-
-        var server = GetActiveServer();
-        if (server is null)
-        {
-            error = "no remote server is configured";
-            return false;
-        }
-
-        return server.TryGetConfig(out config, out error);
-    }
-}
-
-internal sealed class RemoteServer
-{
-    public string Name { get; set; } = string.Empty;
-
-    // One of: "Sftp", "Ftp", "FtpsExplicit", "FtpsImplicit".
-    public string Protocol { get; set; } = "Sftp";
-
-    public bool PassiveMode { get; set; } = true;
-
-    public string Host { get; set; } = string.Empty;
-
-    public int Port { get; set; } = 22;
-
-    public string User { get; set; } = string.Empty;
-
-    // DPAPI-encrypted password (Windows CurrentUser scope), base64-encoded and tagged with a
-    // scheme prefix. Only decryptable by the same Windows user account that saved it.
-    public string Password { get; set; } = string.Empty;
-
-    // Legacy (<= 1.3.3): password stored as plain base64 (encoding, not encryption).
-    // Read for backward compatibility, then migrated into Password and dropped on save.
-    public string? PasswordBase64 { get; set; }
-
-    public string RemoteDirectory { get; set; } = ".";
-
-    private const string DpapiScheme = "DPAPI:";
-
-    internal RemoteServer Clone() => (RemoteServer)MemberwiseClone();
-
-    internal string GetPassword()
-    {
-        if (!string.IsNullOrWhiteSpace(Password))
-        {
-            return DecodeStoredPassword(Password);
-        }
-
-        // Legacy plaintext-base64 fallback (pre-1.3.4 settings not yet migrated).
-        if (!string.IsNullOrWhiteSpace(PasswordBase64))
-        {
-            return DecodeLegacyBase64(PasswordBase64);
-        }
-
-        return string.Empty;
-    }
-
-    internal void SetPassword(string password)
-    {
-        Password = EncodePassword(password);
-        PasswordBase64 = null;
-    }
-
-    // Upgrade a legacy plaintext-base64 password to DPAPI encryption and drop the old field.
-    // Returns true if the stored representation changed (so the caller can persist it).
-    internal bool UpgradePasswordStorage()
-    {
-        if (string.IsNullOrWhiteSpace(Password) && !string.IsNullOrWhiteSpace(PasswordBase64))
-        {
-            Password = EncodePassword(DecodeLegacyBase64(PasswordBase64));
-        }
-
-        if (PasswordBase64 is null)
-        {
-            return false;
-        }
-
-        // Remove the legacy field so plaintext base64 no longer persists to disk.
-        PasswordBase64 = null;
-        return true;
-    }
-
-    private static string EncodePassword(string password)
-    {
-        if (string.IsNullOrEmpty(password))
-        {
-            return string.Empty;
-        }
-
-        try
-        {
-            var protectedBytes = ProtectedData.Protect(
-                Encoding.UTF8.GetBytes(password),
-                optionalEntropy: null,
-                DataProtectionScope.CurrentUser);
-            return DpapiScheme + Convert.ToBase64String(protectedBytes);
-        }
-        catch
-        {
-            // DPAPI should always be available on Windows; degrade to base64 if it ever isn't.
-            return Convert.ToBase64String(Encoding.UTF8.GetBytes(password));
-        }
-    }
-
-    private static string DecodeStoredPassword(string stored)
-    {
-        if (stored.StartsWith(DpapiScheme, StringComparison.Ordinal))
-        {
-            try
-            {
-                var blob = Convert.FromBase64String(stored[DpapiScheme.Length..]);
-                var bytes = ProtectedData.Unprotect(blob, optionalEntropy: null, DataProtectionScope.CurrentUser);
-                return Encoding.UTF8.GetString(bytes);
-            }
-            catch
-            {
-                // Wrong Windows user, corrupted blob, or a tampered settings file.
-                return string.Empty;
-            }
-        }
-
-        // Untagged value: treat as legacy plaintext base64.
-        return DecodeLegacyBase64(stored);
-    }
-
-    private static string DecodeLegacyBase64(string base64)
-    {
-        try
-        {
-            return Encoding.UTF8.GetString(Convert.FromBase64String(base64));
-        }
-        catch
-        {
-            return string.Empty;
-        }
-    }
-
-    internal RemoteProtocol GetProtocol()
-    {
-        return Enum.TryParse<RemoteProtocol>(Protocol, ignoreCase: true, out var parsed)
-            ? parsed
-            : RemoteProtocol.Sftp;
-    }
-
-    internal void SetProtocol(RemoteProtocol protocol)
-    {
-        Protocol = protocol.ToString();
-    }
-
-    internal string DisplayLine()
-    {
-        var protocolLabel = GetProtocol() switch
-        {
-            RemoteProtocol.Sftp => "SFTP",
-            RemoteProtocol.Ftp => "FTP",
-            RemoteProtocol.FtpsExplicit => "FTPS",
-            RemoteProtocol.FtpsImplicit => "FTPS(implicit)",
-            _ => "SFTP",
-        };
-        return $"{Name}  —  {protocolLabel} {User}@{Host}:{Port}";
-    }
-
-    internal bool TryGetConfig(out RemoteUploadConfig config, out string error)
-    {
-        config = default;
-        error = string.Empty;
-
-        var password = GetPassword();
-        if (string.IsNullOrWhiteSpace(Host))
-        {
-            error = $"host is not configured for server '{Name}'";
-            return false;
-        }
-
-        if (Port <= 0 || Port > 65535)
-        {
-            error = $"port is invalid for server '{Name}'";
-            return false;
-        }
-
-        if (string.IsNullOrWhiteSpace(User))
-        {
-            error = $"user is not configured for server '{Name}'";
-            return false;
-        }
-
-        if (string.IsNullOrWhiteSpace(password))
-        {
-            error = $"password is not configured for server '{Name}'";
-            return false;
-        }
-
-        if (string.IsNullOrWhiteSpace(RemoteDirectory))
-        {
-            error = $"remote directory is not configured for server '{Name}'";
-            return false;
-        }
-
-        config = new RemoteUploadConfig(GetProtocol(), Host, Port, User, password, RemoteDirectory, PassiveMode);
-        return true;
-    }
-}
-
-internal enum RemoteProtocol
-{
-    Sftp,
-    Ftp,
-    FtpsExplicit,
-    FtpsImplicit,
-}
-
-internal readonly record struct RemoteUploadConfig(
-    RemoteProtocol Protocol,
-    string Host,
-    int Port,
-    string User,
-    string Password,
-    string RemoteDirectory,
-    bool PassiveMode);
 
 internal static class RemoteUploader
 {

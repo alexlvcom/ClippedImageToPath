@@ -73,9 +73,24 @@ Add the changelog entry and bump all four in the same change.
 
 ## Naming
 
-The spaced name **Clipped Image to Path** is what the user reads: the About window,
+The spaced name **Clipped Image to Path** is what the user reads: the About tab,
 the Settings title, the tray tooltip, every dialog caption, `<Product>`, the README.
-It lives in the single `AppName` constant in `Program.cs`.
+It lives in `AppInfo.DisplayName` (`AppInfo.cs`).
+
+## UI
+
+The tray icon, clipboard listener, paste hook and message loop are WinForms (`Program.cs`).
+Every window is WPF in `Ui/` (Settings, Remote Servers, the server editor, the update
+dialog), styled by the shared AlexLV Windows UI kit vendored unchanged in
+`AlexLV.WindowsUi/`; its canonical copy is `C:projectsAlexLV.WindowsUi`. Windows derive
+from `ThemedWindow`, messages use `MessageDialog`, and the tray menu is drawn by
+`TrayMenuStyler`. The approved design is `design/ui-redesign.html`.
+The app version comes from the `.csproj` and release notes from the embedded `CHANGELOG.md`
+(`Changelog.cs`). Keep `InvariantGlobalization` off: WPF text layout needs culture data.
+
+`ClippedImageToPath.exe --render-windows <folder>` builds every window off screen in the light and dark
+themes, saves a PNG per Settings tab and dialog, and writes `render.txt` with any tab whose content would
+need vertical scrolling. It runs beside the tray instance and never saves settings.
 
 The one-word `ClippedImageToPath` is reserved for identifiers — the assembly, the
 executable, the single-instance mutex, the listener window caption, and the

@@ -101,19 +101,30 @@ Turning it on from the tray shows a notification naming the server uploads will 
 
 | Item | Behaviour |
 |---|---|
-| **Enable Remote Upload** | Checkable; turns remote upload on or off. The menu stays open so you can see the checkbox change |
+| **Enable remote upload** | Checkable; turns remote upload on or off. The menu stays open so you can see the checkbox change |
 | **Active server** | Which server profile uploads use. Disabled while remote upload is off |
-| **Settings** | |
-| **About** | Name, version, build date, selectable running EXE path, build summary, copyright |
+| **Settings…** | Opens Settings, including the About and Diagnostics tabs |
 | **Exit** | |
+
+The menu follows the app theme (light or dark).
 
 ## Settings
 
-Settings uses compact **Saved images**, **Clipboard**, **Remote upload**, and
-**Updates** tabs without scrolling. Save and Cancel stay in the footer on every tab.
-Nothing changes until you click Save; if saving fails, Settings shows the error and
+Settings has **Saved images**, **Clipboard**, **Remote upload**, **Updates**,
+**Appearance**, **About**, and **Diagnostics** tabs, each fitting the window without
+scrolling. Save and Cancel stay in the footer on every tab, with a count of unsaved
+changes. Nothing changes until you click Save; an empty folder or an invalid reminder
+interval is shown under its field, and if saving fails, Settings shows the error and
 stays open. Cancel, Esc, or closing the window discards unsaved edits.
-**Open output folder** sits beside Browse in Saved images and opens the selected folder.
+**Open folder** sits beside Browse in Saved images and opens the selected folder.
+
+- **Updates** shows when the last check ran and checks on demand.
+- **Appearance → Theme** offers System (default), Light, and Dark. System follows the
+  Windows app mode and switches live; a new choice previews at once and Cancel restores
+  the saved theme.
+- **About** shows the version, build date, and the release notes for the running version.
+- **Diagnostics** shows the executable, settings, and log paths with Open buttons, and
+  **Copy details** copies them with the version for a bug report.
 
 ![Settings dialog](../ClippedImageToPath-Config.png)
 
@@ -126,14 +137,15 @@ Hover over any option to see a short description of what it does.
 | **Paste path with `Shift+Insert`** | Turns the path paste on or off |
 | **Remote upload enabled** | Uploads each saved PNG to the active server |
 | **Remote upload notifications** | Reminder toggle plus the interval in minutes (30 by default) |
-| **Remote servers…** | Add, edit, remove and pick the active server profile. Changes apply when you click Save in that window; Cancel discards them |
+| **Manage servers…** | Add, edit, remove and pick the active server profile. Changes apply when you click Save in that window; Cancel discards them |
 
 ## Remote upload
 
 Each server profile stores its protocol (SFTP / FTP / FTPS explicit / FTPS
 implicit), host, port, user, password, remote directory and passive mode. A
 per-profile **test connection** button verifies both login and remote directory
-access before you rely on it.
+access before you rely on it. The editor shows each problem under its field, and
+passive mode is greyed out for SFTP, where it does not apply.
 
 Switch the active server quickly from the tray menu's **Active server** submenu;
 uploads always use the active profile.

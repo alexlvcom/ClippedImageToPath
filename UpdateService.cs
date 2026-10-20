@@ -63,7 +63,7 @@ internal sealed class UpdateService : IDisposable
         return new AppUpdate(version, installer, checksums, digest);
     }
 
-    internal async Task<string> DownloadAsync(AppUpdate update, string cacheRoot, CancellationToken cancellationToken)
+    internal async Task<string> DownloadAsync(AppUpdate update, string cacheRoot, CancellationToken cancellationToken, IProgress<(long Received, long? Total)>? progress = null)
     {
         var expected = update.Sha256;
         if (expected is null)
@@ -93,6 +93,7 @@ internal sealed class UpdateService : IDisposable
                 while ((count = await input.ReadAsync(buffer, cancellationToken)) != 0)
                 {
                     total += count;
+                    progress?.Report((total, response.Content.Headers.ContentLength));
                     if (total > MaxDownloadBytes) throw new InvalidDataException("Installer is too large.");
                     await output.WriteAsync(buffer.AsMemory(0, count), cancellationToken);
                 }

@@ -1,0 +1,278 @@
+<ui:ThemedWindow x:Class="ClippedImageToPath.Ui.SettingsWindow"
+        x:ClassModifier="internal"
+        xmlns:ui="clr-namespace:AlexLV.WindowsUi"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Style="{StaticResource KitWindow}"
+        Width="720" Height="660" ResizeMode="CanMinimize" WindowStartupLocation="CenterScreen" ShowInTaskbar="True">
+  <!-- Fixed size; no tab scrolls (windows-apps-common-standards.md, Sectioned Settings). -->
+  <DockPanel>
+    <Border DockPanel.Dock="Bottom" Style="{StaticResource Footer}">
+      <DockPanel LastChildFill="True">
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+          <Button x:Name="SaveButton" Content="Save" Style="{StaticResource PrimaryButton}" IsDefault="True" Click="Save_Click"
+                  ToolTip="Save these settings and apply them immediately."/>
+          <Button x:Name="CancelButton" Content="Cancel" Margin="8,0,0,0" IsCancel="True" Click="Cancel_Click"
+                  ToolTip="Close without saving changes."/>
+        </StackPanel>
+        <TextBlock x:Name="DirtyText" Style="{StaticResource MutedText}" VerticalAlignment="Center"/>
+      </DockPanel>
+    </Border>
+
+    <TabControl x:Name="Tabs">
+      <!-- Saved images -->
+      <TabItem Header="Saved images" x:Name="SavedTab">
+        <StackPanel>
+          <TextBlock Text="Choose where copied images are saved as PNG files." Style="{StaticResource LeadText}"/>
+          <TextBlock Text="Output folder" Style="{StaticResource StrongText}" Margin="0,0,0,6"
+                     ToolTip="Folder where copied clipboard images are saved as PNG files."/>
+          <DockPanel>
+            <Button x:Name="OpenFolderButton" DockPanel.Dock="Right" Content="Open folder" Margin="8,0,0,0" Click="OpenFolder_Click"
+                    ToolTip="Open the folder currently selected above in File Explorer."/>
+            <Button x:Name="BrowseButton" DockPanel.Dock="Right" Content="Browse…" Margin="8,0,0,0" Click="Browse_Click"
+                    ToolTip="Choose the folder where copied clipboard images are saved."/>
+            <TextBox x:Name="Folder" FontFamily="{DynamicResource MonoFont}" FontSize="12.5"
+                     ToolTip="Folder where copied clipboard images are saved as PNG files."/>
+          </DockPanel>
+          <TextBlock x:Name="FolderError" Text="Choose an output folder. Images can't be saved without one."
+                     Style="{StaticResource ErrorText}" Margin="0,6,0,0" Visibility="Collapsed"/>
+          <TextBlock Style="{StaticResource MutedText}" Margin="0,10,0,16"
+                     Text="Each copied image is saved here as a PNG, and its path replaces the image on the clipboard. A new folder is created when you save."/>
+          <Border Style="{StaticResource Card}">
+            <StackPanel>
+              <Border Style="{StaticResource FirstCardRow}">
+                <DockPanel>
+                  <TextBlock x:Name="FileNameExample" DockPanel.Dock="Right" VerticalAlignment="Center"
+                             FontFamily="{DynamicResource MonoFont}" FontSize="12.5"/>
+                  <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="File names"/>
+                    <TextBlock Text="Each image is named by the time it was copied" Style="{StaticResource MutedText}"/>
+                  </StackPanel>
+                </DockPanel>
+              </Border>
+              <Border Style="{StaticResource CardRow}">
+                <DockPanel>
+                  <TextBlock x:Name="CleanupText" DockPanel.Dock="Right" VerticalAlignment="Center" Style="{StaticResource MutedText}" FontSize="14"/>
+                  <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="Clean-up"/>
+                    <TextBlock Text="Older images in this folder are deleted automatically" Style="{StaticResource MutedText}"/>
+                  </StackPanel>
+                </DockPanel>
+              </Border>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </TabItem>
+
+      <!-- Clipboard -->
+      <TabItem Header="Clipboard" x:Name="ClipboardTab">
+        <StackPanel>
+          <TextBlock Text="Choose how saved image paths are pasted." Style="{StaticResource LeadText}"/>
+          <Border Style="{StaticResource Card}">
+            <StackPanel>
+              <Border Style="{StaticResource FirstCardRow}" MouseLeftButtonUp="Row_Click" Background="Transparent"
+                      ToolTip="Copy saved paths in /mnt/... format for use in WSL terminals.">
+                <DockPanel>
+                  <CheckBox x:Name="Wsl" DockPanel.Dock="Right" Style="{StaticResource ToggleSwitch}"
+                            AutomationProperties.Name="Convert clipboard path to WSL format"/>
+                  <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="Convert clipboard path to WSL format"/>
+                    <TextBlock Text="Copies /mnt/c/… paths for WSL terminals" Style="{StaticResource MutedText}"/>
+                  </StackPanel>
+                </DockPanel>
+              </Border>
+              <Border Style="{StaticResource CardRow}" MouseLeftButtonUp="Row_Click" Background="Transparent"
+                      ToolTip="Keep screenshots available for normal Ctrl+V, and paste the saved file path with Shift+Insert.">
+                <DockPanel>
+                  <CheckBox x:Name="SmartPaste" DockPanel.Dock="Right" Style="{StaticResource ToggleSwitch}"
+                            AutomationProperties.Name="Paste saved image path with Shift+Insert"/>
+                  <StackPanel VerticalAlignment="Center">
+                    <TextBlock x:Name="SmartPasteLabel" Text="Paste saved image path with Shift+Insert"/>
+                    <TextBlock x:Name="SmartPasteDetail" Text="Ctrl+V still pastes the image itself" Style="{StaticResource MutedText}"/>
+                  </StackPanel>
+                </DockPanel>
+              </Border>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </TabItem>
+
+      <!-- Remote upload -->
+      <TabItem Header="Remote upload" x:Name="RemoteTab">
+        <StackPanel>
+          <TextBlock Text="Upload saved images to your selected remote server." Style="{StaticResource LeadText}"/>
+          <Border Style="{StaticResource Card}">
+            <StackPanel>
+              <Border Style="{StaticResource FirstCardRow}" MouseLeftButtonUp="Row_Click" Background="Transparent"
+                      ToolTip="Upload each saved clipboard image to the selected remote server when enabled.">
+                <DockPanel>
+                  <CheckBox x:Name="Upload" DockPanel.Dock="Right" Style="{StaticResource ToggleSwitch}"
+                            AutomationProperties.Name="Remote upload"/>
+                  <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="Remote upload"/>
+                    <TextBlock x:Name="UploadDetail" Style="{StaticResource MutedText}"/>
+                  </StackPanel>
+                </DockPanel>
+              </Border>
+              <Border Style="{StaticResource CardRow}" x:Name="RemindRow"
+                      ToolTip="Remind you that remote upload is still on so you can disable it when no longer needed.">
+                <DockPanel>
+                  <CheckBox x:Name="Remind" DockPanel.Dock="Right" Style="{StaticResource ToggleSwitch}" Margin="14,0,0,0"
+                            AutomationProperties.Name="Remind me while upload is on"/>
+                  <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock x:Name="EveryLabel" Text="Every" Style="{StaticResource MutedText}" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <TextBox x:Name="Minutes" Width="64" HorizontalContentAlignment="Right"
+                             AutomationProperties.Name="Reminder interval in minutes"
+                             ToolTip="Choose how often the remote upload notification appears, from 1 to 1,440 minutes."/>
+                    <TextBlock x:Name="MinLabel" Text="min" Style="{StaticResource MutedText}" FontSize="14" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                  </StackPanel>
+                  <StackPanel VerticalAlignment="Center">
+                    <TextBlock x:Name="RemindLabel" Text="Remind me while upload is on"/>
+                    <TextBlock Text="A Windows notification, from 1 to 1,440 minutes" Style="{StaticResource MutedText}"/>
+                  </StackPanel>
+                </DockPanel>
+              </Border>
+              <Border Style="{StaticResource CardRow}">
+                <DockPanel>
+                  <Button DockPanel.Dock="Right" Content="Manage servers…" VerticalAlignment="Center" Click="ManageServers_Click"
+                          ToolTip="Add, edit, remove, select, and test remote server profiles."/>
+                  <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="Remote servers"/>
+                    <TextBlock x:Name="ServersDetail" Style="{StaticResource MutedText}"/>
+                  </StackPanel>
+                </DockPanel>
+              </Border>
+            </StackPanel>
+          </Border>
+          <TextBlock x:Name="MinutesError" Text="Enter a reminder interval from 1 to 1,440 minutes."
+                     Style="{StaticResource ErrorText}" Margin="0,8,0,0" Visibility="Collapsed"/>
+        </StackPanel>
+      </TabItem>
+
+      <!-- Updates -->
+      <TabItem Header="Updates" x:Name="UpdatesTab">
+        <StackPanel>
+          <TextBlock Text="Choose when Clipped Image to Path checks GitHub for newer releases." Style="{StaticResource LeadText}"/>
+          <Border Style="{StaticResource Card}" Padding="16">
+            <DockPanel>
+              <Ellipse x:Name="UpdateDot" Width="10" Height="10" Margin="0,0,14,0" VerticalAlignment="Center" Fill="{DynamicResource Ok}"/>
+              <StackPanel>
+                <TextBlock x:Name="UpdateTitle" Style="{StaticResource StrongText}"/>
+                <TextBlock x:Name="UpdateDetail" Style="{StaticResource MutedText}" FontSize="14"/>
+              </StackPanel>
+            </DockPanel>
+          </Border>
+          <Border Style="{StaticResource Card}" Margin="0,14,0,0" Padding="16,14">
+            <StackPanel>
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Text="Check for updates" VerticalAlignment="Center" MinWidth="132"
+                           ToolTip="Check at startup, then at this interval. Never disables all automatic checks. Use Check for updates here to check manually."/>
+                <ComboBox x:Name="Frequency" Margin="10,0,10,0" MinWidth="190" AutomationProperties.Name="Check for updates"
+                          ToolTip="Check at startup, then at this interval. Never disables all automatic checks. Use Check for updates here to check manually.">
+                  <ComboBoxItem Content="Once an hour"/>
+                  <ComboBoxItem Content="Once a day (default)"/>
+                  <ComboBoxItem Content="Once a week"/>
+                  <ComboBoxItem Content="Once a month"/>
+                  <ComboBoxItem Content="Never"/>
+                </ComboBox>
+                <Button x:Name="CheckNowButton" Content="Check for updates" Click="CheckNow_Click"
+                        ToolTip="Check GitHub now, even when automatic checks are set to Never."/>
+              </StackPanel>
+              <TextBlock Style="{StaticResource MutedText}" Margin="0,10,0,0"
+                         Text="Checks at startup, then at this interval. Never turns off automatic checks; you can still check here."/>
+            </StackPanel>
+          </Border>
+          <Border Style="{StaticResource Card}" Margin="0,14,0,0" Padding="16,14">
+            <StackPanel>
+              <TextBlock Text="Verified installers" Style="{StaticResource StrongText}" Margin="0,0,0,2"/>
+              <TextBlock Style="{StaticResource MutedText}" FontSize="14"
+                         Text="Updates download only after you choose Update. The installer comes from the official GitHub release and is checked against its SHA-256 before setup opens."/>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </TabItem>
+
+      <!-- Appearance -->
+      <TabItem Header="Appearance" x:Name="AppearanceTab">
+        <StackPanel>
+          <TextBlock Text="Choose how Clipped Image to Path looks. The change previews right away; Save keeps it." Style="{StaticResource LeadText}"/>
+          <TextBlock Text="THEME" Style="{StaticResource SectionHeader}"/>
+          <Border Style="{StaticResource Card}">
+            <Border Style="{StaticResource FirstCardRow}">
+              <DockPanel>
+                <Border DockPanel.Dock="Right" Style="{StaticResource SegmentGroup}" VerticalAlignment="Center">
+                  <StackPanel Orientation="Horizontal">
+                    <RadioButton x:Name="ThemeSystem" Content="System (default)" GroupName="Theme" Style="{StaticResource Segment}" Checked="Theme_Checked"/>
+                    <RadioButton x:Name="ThemeLight" Content="Light" GroupName="Theme" Style="{StaticResource Segment}" Checked="Theme_Checked"/>
+                    <RadioButton x:Name="ThemeDark" Content="Dark" GroupName="Theme" Style="{StaticResource Segment}" Checked="Theme_Checked"/>
+                  </StackPanel>
+                </Border>
+                <StackPanel VerticalAlignment="Center">
+                  <TextBlock Text="Theme"/>
+                  <TextBlock x:Name="ThemeHelp" Style="{StaticResource MutedText}"/>
+                </StackPanel>
+              </DockPanel>
+            </Border>
+          </Border>
+          <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
+            <StackPanel Margin="0,0,16,0">
+              <Border Width="150" Height="64" CornerRadius="6" BorderBrush="{DynamicResource Border}" BorderThickness="1" Background="#F5F5F5" ClipToBounds="True">
+                <DockPanel>
+                  <Border DockPanel.Dock="Top" Height="14" Background="#EBEBEB" CornerRadius="5,5,0,0"/>
+                  <Border Height="10" Width="64" Margin="10" CornerRadius="3" Background="#007850" HorizontalAlignment="Left" VerticalAlignment="Top"/>
+                </DockPanel>
+              </Border>
+              <TextBlock Text="Light" Style="{StaticResource MutedText}" HorizontalAlignment="Center" Margin="0,6,0,0"/>
+            </StackPanel>
+            <StackPanel>
+              <Border Width="150" Height="64" CornerRadius="6" BorderBrush="{DynamicResource Border}" BorderThickness="1" Background="#1C1C1C" ClipToBounds="True">
+                <DockPanel>
+                  <Border DockPanel.Dock="Top" Height="14" Background="#262626" CornerRadius="5,5,0,0"/>
+                  <Border Height="10" Width="64" Margin="10" CornerRadius="3" Background="#5FD3A0" HorizontalAlignment="Left" VerticalAlignment="Top"/>
+                </DockPanel>
+              </Border>
+              <TextBlock Text="Dark" Style="{StaticResource MutedText}" HorizontalAlignment="Center" Margin="0,6,0,0"/>
+            </StackPanel>
+          </StackPanel>
+        </StackPanel>
+      </TabItem>
+
+      <!-- About -->
+      <TabItem Header="About" x:Name="AboutTab">
+        <StackPanel>
+          <DockPanel Margin="0,0,0,16">
+            <Button DockPanel.Dock="Right" Content="Project page" VerticalAlignment="Center" Click="ProjectPage_Click"
+                    ToolTip="Open github.com/alexlvcom/ClippedImageToPath."/>
+            <Image x:Name="AboutIcon" Width="40" Height="40" Margin="0,0,14,0" VerticalAlignment="Center"/>
+            <StackPanel VerticalAlignment="Center">
+              <TextBlock x:Name="AboutTitle" Style="{StaticResource TitleText}"/>
+              <TextBlock x:Name="AboutBuild" Style="{StaticResource MutedText}" FontSize="14"/>
+            </StackPanel>
+          </DockPanel>
+          <TextBlock x:Name="NotesHeader" Style="{StaticResource StrongText}" Margin="0,0,0,8"/>
+          <Border Style="{StaticResource Card}" Height="220">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16,10" Focusable="False">
+              <StackPanel x:Name="NotesPanel"/>
+            </ScrollViewer>
+          </Border>
+        </StackPanel>
+      </TabItem>
+
+      <!-- Diagnostics -->
+      <TabItem Header="Diagnostics" x:Name="DiagnosticsTab">
+        <StackPanel>
+          <TextBlock Text="Where Clipped Image to Path runs from and keeps its files. Include these details when reporting a problem."
+                     Style="{StaticResource LeadText}"/>
+          <Border Style="{StaticResource Card}">
+            <StackPanel x:Name="PathsPanel"/>
+          </Border>
+          <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+            <Button Content="Copy details" Click="CopyDetails_Click"/>
+            <TextBlock Text="Copies the version, build date and these paths." Style="{StaticResource MutedText}"
+                       VerticalAlignment="Center" Margin="12,0,0,0"/>
+          </StackPanel>
+        </StackPanel>
+      </TabItem>
+    </TabControl>
+  </DockPanel>
+</ui:ThemedWindow>

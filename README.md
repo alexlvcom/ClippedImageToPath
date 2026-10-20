@@ -48,7 +48,7 @@ Uninstall it through Windows Settings → Apps. The uninstaller exits the app au
 
 The installed executable is
 `%LOCALAPPDATA%\Programs\Clipped Image to Path\ClippedImageToPath.exe`.
-Open **About** from the tray menu to see and copy the full path of the running EXE.
+Open Settings → **Diagnostics** to see and copy the full path of the running EXE.
 Settings stay in `%APPDATA%\ClippedImageToPath` during upgrades and uninstall.
 
 The exe is unsigned, so Windows may show a SmartScreen warning on first run. See
@@ -57,9 +57,11 @@ and how to verify the download.
 
 ## Settings
 
-Open **Settings** from the tray menu. The compact window has four tabs:
-**Saved images**, **Clipboard**, **Remote upload**, and **Updates**.
-**Open output folder** is beside Browse in Saved images.
+Open **Settings** from the tray menu. The window has seven tabs, none of which scroll:
+**Saved images**, **Clipboard**, **Remote upload**, **Updates**, **Appearance**, **About**, and **Diagnostics**.
+**Open folder** is beside Browse in Saved images.
+**Appearance → Theme** offers **System** (default, follows the Windows light or dark mode), **Light**, and **Dark**;
+a new choice previews at once, Save keeps it, and Cancel restores the saved theme.
 The Settings title shows your current version. Save applies changes across all tabs,
 including the update schedule, without restarting. If a change can't be saved, Settings
 stays open with your edits. Cancel, Esc, or closing the window leaves everything unchanged.

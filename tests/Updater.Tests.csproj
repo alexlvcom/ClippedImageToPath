@@ -1,12 +1,20 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <!-- The settings model reads the kit's AppTheme, which lives beside the WPF ThemeManager. -->
+    <UseWPF>true</UseWPF>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <Using Include="System.IO" />
+    <Using Include="System.Net.Http" />
     <Compile Include="../UpdateService.cs" Link="UpdateService.cs" />
     <Compile Include="../UpdateSchedule.cs" Link="UpdateSchedule.cs" />
+    <Compile Include="../AppSettings.cs" Link="AppSettings.cs" />
+    <Compile Include="../Changelog.cs" Link="Changelog.cs" />
+    <Compile Include="../AlexLV.WindowsUi/ThemeManager.cs" Link="ThemeManager.cs" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
   </ItemGroup>
 </Project>

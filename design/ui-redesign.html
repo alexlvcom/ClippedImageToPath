@@ -1,0 +1,1197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clipped Image to Path · UI redesign mockup</title>
+<!--
+  UI INVENTORY (from Program.cs, v1.7.3) — every surface this mockup replicates.
+
+  Tray icon (NotifyIcon)
+    - Idle: green #007850 square, white stroke. Tooltip "Clipped Image to Path".
+    - Remote upload enabled: same green, yellow #FFD200 stroke. Tooltip "Clipped Image to Path - Upload to <server>"
+      (or "... - Remote upload enabled" when no server).
+    - Uploading: blue #005FAA with amber upload badge. Tooltip "Clipped Image to Path uploading 3.2s".
+  Tray context menu (ContextMenuStrip)
+    - "Enable Remote Upload" (checked state; toggling keeps the menu open)
+    - "Active server: <name>" submenu (disabled unless remote upload is on and servers exist);
+      items = server names, active one checked; "(no servers configured)" disabled; text "Active server: (none)".
+    - separator, "Settings", "About", "Exit"
+  Balloon tips (Windows notifications)
+    - "Remote upload enabled" / "Remote upload to <server> is enabled." | "...but no server is selected."
+    - "Remote upload reminder" / "Remote upload is still enabled. Disable it when you no longer need it."
+  Settings window "Clipped Image to Path Settings (v1.7.3)" — tabs + Save/Cancel footer
+    - Saved images: "Choose where copied images are saved as PNG files." Output folder: [path] Browse... | Open output folder
+      tooltips: "Folder where copied clipboard images are saved as PNG files." / "Choose the folder where copied
+      clipboard images are saved." / "Open the folder currently selected above in File Explorer."
+      Folder picker: "Choose where clipboard images will be saved".
+    - Clipboard: "Choose how saved image paths are pasted." [ ] Convert clipboard path to WSL format (/mnt/c/...)
+      [ ] Paste saved image path with Shift+Insert (disabled when the paste monitor is unavailable)
+    - Remote upload: "Upload saved images to your selected remote server." [ ] Remote upload enabled;
+      [ ] Remind me every [30] minutes (1–1,440; enabled only with remote upload); Remote servers...
+    - Updates: "Choose when the app checks GitHub for newer releases." Check for updates: Once an hour /
+      Once a day (default) / Once a week / Once a month / Never; [Check for updates]
+      tooltip "Check at startup, then at this interval. Never disables all automatic checks..."
+    - Save: "Output folder cannot be empty." / "Failed to save settings: <error>" (window stays open)
+  Remote Servers window: hint "The server marked ● is used for uploads. Double-click to edit."
+    list "<name>  —  SFTP user@host:port"; Add... Edit... Remove, Set as active, Test (Testing...); Save/Cancel.
+    Remove confirm "Remove server '<name>'?" Yes/No. Test: "Connection succeeded and the remote directory is
+    available." / "Connection test failed: <error>". Save failure "Failed to save remote servers: <error>".
+  Add/Edit Remote Server dialog: Name, Protocol (SFTP (SSH) / FTP (plain) / FTPS (explicit TLS) /
+    FTPS (implicit TLS)), Host, Port (22/21/21/990 follows protocol), User, Password, Remote directory,
+    [ ] Use passive mode (FTP/FTPS); Test connection; Save/Cancel. Errors: "Name cannot be empty.",
+    "A server named '<name>' already exists.", "Host cannot be empty.", "Port must be a number from 1 to 65535.",
+    "User cannot be empty.", "Password cannot be empty.", "Remote directory cannot be empty."
+  About window "About Clipped Image to Path": icon + name; Version; Build date; EXE path (selectable);
+    Build summary; Copyright; Close (initial focus).
+  Update: up to date "You are running version 1.7.3.\n\nNo newer installer version is available."
+    failed "Could not check for updates. Please try again later.\n\n<error>"
+    dialog "Update Clipped Image to Path (v1.7.3)": "Version X is available. You have 1.7.3. Update will
+    download and open the installer. Setup will close the app and restart it after updating." Update/Later;
+    "Downloading and verifying the installer…"; "The download timed out. Check your connection and click Update
+    to try again."; "Update failed. Please try again.\n\n<error>".
+  Other: "Could not open the output folder.\n\n<error>" (e.g. "This folder does not exist. Save settings to
+    create it first.").
+
+  REDESIGN DECISIONS (for owner review)
+    - About moves into Settings as a tab (shared standard §3); tray keeps one "Settings…" item, About is removed
+      from the tray menu. A new Appearance tab holds Theme: System (default) / Light / Dark.
+    - Field validation in the server editor shows inline under the field instead of a message box.
+    - Passive mode is disabled for SFTP (it only applies to FTP/FTPS).
+    - Updates tab gains a status card with "last checked" (the app does not store that today).
+    - Theme previews live while Settings is open; Cancel restores the saved theme; Save keeps it.
+    - Balloon notifications remain native Windows toasts (OS-drawn); shown here for wording only.
+-->
+<!--
+  AlexLV Windows Settings foundation (shared by every app mockup).
+  Derived from Tunella's visual language (Tunella/DESIGN.md, App.xaml): flat surfaces,
+  5px radius, Segoe UI 14px, accent marks primary action + keyboard focus, one title row.
+  Adds a light theme Tunella lacks. Theme: System (default) follows Windows via
+  prefers-color-scheme; Light/Dark force it. Each app sets --accent-* for its identity.
+
+  Copy the <style> and <script> blocks INLINE into each app mockup (mockups must be
+  self-contained). Do not link this file.
+-->
+<style>
+:root {
+  color-scheme: light dark;
+  --font: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --radius: 5px;
+  --radius-lg: 8px;
+  /* Per-app identity: override these two in each mockup. */
+  --accent-light: #005fb8;   /* must give >= 4.5:1 on --surface (light) */
+  --accent-dark:  #60a5fa;   /* neutral default accent; >= 3:1 focus on dark canvas */
+}
+/* Light */
+:root, :root[data-theme="light"] {
+  --surface: #f5f5f5;   /* window canvas */
+  --chrome:  #ebebeb;   /* title row / nav / footer */
+  --raised:  #ffffff;   /* cards, inputs */
+  --border:  #d6d6d6;
+  --text:    #1b1b1b;
+  --muted:   #5f5f5f;
+  --accent:  var(--accent-light);
+  --on-accent: #ffffff;
+  --selection: color-mix(in srgb, var(--accent) 14%, transparent);
+  --danger: #b3261e;
+  --ok: #2e7d32;
+}
+/* Dark (neutral) */
+:root[data-theme="dark"] {
+  --surface: #1c1c1c;
+  --chrome:  #262626;
+  --raised:  #2d2d2d;
+  --border:  #3d3d3d;
+  --text:    #f0f0f0;
+  --muted:   #a6a6a6;
+  --accent:  var(--accent-dark);
+  --on-accent: #111111;
+  --selection: color-mix(in srgb, var(--accent) 18%, transparent);
+  --danger: #f2a198;
+  --ok: #9fd39f;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --surface: #1c1c1c; --chrome: #262626; --raised: #2d2d2d; --border: #3d3d3d;
+    --text: #f0f0f0; --muted: #a6a6a6; --accent: var(--accent-dark); --on-accent: #111111;
+    --selection: color-mix(in srgb, var(--accent) 18%, transparent);
+    --danger: #f2a198; --ok: #9fd39f;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #6b6a66; font: 14px/1.45 var(--font); }
+body { display: grid; place-items: center; min-height: 100vh; padding: 32px 16px; }
+
+/* Mockup harness bar (not part of the app) */
+.harness { position: fixed; top: 0; left: 0; right: 0; display: flex; gap: 12px; align-items: center;
+  padding: 6px 16px; background: #111; color: #ddd; font-size: 12px; z-index: 10; }
+.harness b { color: #fff; }
+
+/* Native-sized window: 720px wide like the standard requires */
+.window { width: 720px; max-width: 100%; background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden;
+  box-shadow: 0 18px 48px rgba(0,0,0,.35); display: flex; flex-direction: column; min-height: 560px; }
+
+/* One title row: icon, title (vN.N.N), section tabs, window controls */
+.titlebar { display: flex; align-items: center; gap: 10px; background: var(--chrome);
+  padding: 0 0 0 14px; height: 44px; border-bottom: 1px solid var(--border); user-select: none; }
+.titlebar .app-icon { width: 18px; height: 18px; border-radius: 4px; flex: none; }
+.titlebar .title { font-weight: 600; white-space: nowrap; }
+.titlebar .title small { color: var(--muted); font-weight: 400; }
+.winctl { margin-left: auto; display: flex; height: 100%; }
+.winctl span { width: 46px; display: grid; place-items: center; color: var(--muted); }
+.winctl span:last-child:hover { background: #c42b1c; color: #fff; }
+
+.tabs { display: flex; gap: 2px; padding: 0 16px; background: var(--chrome); border-bottom: 1px solid var(--border); }
+.tab { appearance: none; border: 0; background: none; color: var(--muted); font: inherit;
+  padding: 10px 12px 9px; border-bottom: 2px solid transparent; cursor: pointer; border-radius: 0; }
+.tab:hover { color: var(--text); }
+.tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+
+.page { padding: 22px 24px; flex: 1; display: none; }
+.page.active { display: block; }
+.page h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+  margin: 0 0 10px; font-weight: 600; }
+.section + .section { margin-top: 20px; }
+
+.card { background: var(--raised); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+.row { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 10px 16px; }
+.row + .row { border-top: 1px solid var(--border); }
+.row .label { flex: 1; min-width: 0; }
+.row .label span { display: block; color: var(--muted); font-size: 12.5px; }
+
+input[type="text"], input[type="number"], select, textarea {
+  font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 6px 10px; min-height: 32px; }
+input[type="number"] { width: 76px; }
+.path { width: 100%; min-width: 460px; font-family: "Cascadia Mono", Consolas, monospace; font-size: 12.5px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+button.btn { font: inherit; color: var(--text); background: var(--raised); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 6px 14px; min-height: 32px; cursor: pointer; white-space: nowrap; }
+button.btn:hover { border-color: var(--accent); }
+button.btn.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); font-weight: 600; }
+button.btn:disabled { opacity: .45; cursor: default; }
+
+/* Toggle switch */
+.switch { position: relative; width: 40px; height: 22px; flex: none; }
+.switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.switch i { position: absolute; inset: 0; border-radius: 11px; background: var(--border); transition: background .15s; pointer-events: none; }
+.switch i::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--raised); box-shadow: 0 1px 2px rgba(0,0,0,.3); transition: transform .15s; }
+.switch input:checked + i { background: var(--accent); }
+.switch input:checked + i::after { transform: translateX(18px); background: var(--on-accent); }
+.switch input:focus-visible + i { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Segmented control (theme picker) */
+.segmented { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.segmented button { font: inherit; border: 0; background: var(--surface); color: var(--text); padding: 6px 14px; cursor: pointer; }
+.segmented button + button { border-left: 1px solid var(--border); }
+.segmented button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); font-weight: 600; }
+
+.status-card { display: flex; gap: 14px; align-items: center; padding: 16px; }
+.status-card .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ok); flex: none; }
+.muted { color: var(--muted); }
+.notes { font-size: 13px; max-height: 220px; min-height: 180px; overflow: auto; padding: 12px 16px; }
+
+/* Footer: Save/Cancel on every tab (shared standard) */
+.footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px; background: var(--chrome);
+  border-top: 1px solid var(--border); }
+.dirty { margin-right: auto; align-self: center; color: var(--muted); font-size: 12.5px; }
+.toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #111; color: #fff;
+  padding: 8px 14px; border-radius: var(--radius); font-size: 13px; opacity: 0; transition: opacity .2s; }
+.toast.show { opacity: 1; }
+</style>
+<script>
+/* Theme: 'system' (default) | 'light' | 'dark'. System follows Windows via prefers-color-scheme. */
+function applyTheme(choice) {
+  const root = document.documentElement;
+  if (choice === 'system') root.removeAttribute('data-theme'); else root.setAttribute('data-theme', choice);
+  document.querySelectorAll('[data-theme-choice]').forEach(b =>
+    b.setAttribute('aria-pressed', String(b.dataset.themeChoice === choice)));
+}
+function wireMockup() {
+  document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', String(t === tab)));
+    document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === tab.dataset.page));
+  }));
+  document.querySelectorAll('[data-theme-choice]').forEach(b =>
+    b.addEventListener('click', () => applyTheme(b.dataset.themeChoice)));
+  const toast = (msg) => { const t = document.querySelector('.toast'); if (!t) return;
+    t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 1600); };
+  document.querySelectorAll('[data-preview]').forEach(b =>
+    b.addEventListener('click', () => toast('Preview: ' + b.dataset.preview)));
+  applyTheme('system');
+}
+document.addEventListener('DOMContentLoaded', wireMockup);
+</script>
+<style>
+/* ===== Clipped Image to Path: app identity + mockup stage (after the shared foundation) ===== */
+:root {
+  --accent-light: #007850;  /* icon green; 5.1:1 on light surface, white text on it 5.3:1 */
+  --accent-dark:  #5fd3a0;  /* lifted icon green; 9.7:1 on dark surface */
+}
+::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); color: inherit; }
+* { scrollbar-color: color-mix(in srgb, var(--muted) 55%, transparent) transparent; scrollbar-width: thin; }
+input, textarea { caret-color: var(--accent); }
+input::placeholder { color: var(--muted); opacity: 1; }
+
+/* The page is a simulated Windows desktop; override the foundation's centered body */
+html, body { height: 100%; }
+body { display: block; padding: 0; min-height: 100vh; overflow: hidden;
+  background: #3b4a52; }
+:root[data-theme="dark"] body { background: #11171a; }
+
+.harness { flex-wrap: wrap; row-gap: 6px; padding: 8px 16px; font-size: 12.5px; background: #101214; border-bottom: 1px solid #2a2d30; }
+.harness .group { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.harness .sep { width: 1px; height: 20px; background: #34383c; margin: 0 4px; }
+.harness button, .harness select { font: inherit; font-size: 12px; color: #e8e8e8; background: #1e2124; border: 1px solid #3a3e42;
+  border-radius: 4px; padding: 3px 8px; cursor: pointer; }
+.harness button:hover { border-color: #5fd3a0; }
+.harness button[aria-pressed="true"] { background: #5fd3a0; color: #0d1a13; border-color: #5fd3a0; }
+.harness label { display: inline-flex; gap: 5px; align-items: center; color: #bbb; }
+.harness .tag { color: #8a9096; }
+
+.desktop { position: absolute; inset: 0; }
+.stage { position: absolute; inset: calc(var(--hh, 86px) + 8px) 0 56px 0; display: grid; place-items: center; }
+.stage > .window { grid-area: 1 / 1; }
+.window[hidden] { display: none !important; }
+.window.dialog { min-height: 0; width: 480px; }
+.window.small { width: 440px; }
+.window.servers { width: 620px; min-height: 0; }
+.window.settings { height: 640px; }
+.switch input:disabled { cursor: default; }
+.switch input:disabled + i { opacity: .38; }
+.switch input:disabled:checked + i { background: var(--muted); }
+textarea.path { display: block; resize: none; min-height: 0; line-height: 1.4; overflow: hidden; word-break: break-all; }
+.facts { margin-top: 18px; }
+.facts .row { min-height: 0; padding: 12px 16px; }
+.facts code { font-family: "Cascadia Mono", Consolas, monospace; font-size: 12.5px; color: var(--text); }
+.about-head .actions { margin-left: auto; display: flex; gap: 8px; }
+.scrim { grid-area: 1 / 1; position: absolute; inset: 0; background: rgba(0,0,0,.28); }
+.scrim[hidden] { display: none; }
+
+.titlebar .winctl button { width: 46px; height: 100%; border: 0; background: none; color: var(--muted); display: grid;
+  place-items: center; cursor: pointer; border-radius: 0; }
+.titlebar .winctl button:hover { background: #c42b1c; color: #fff; }
+.titlebar .winctl svg { width: 10px; height: 10px; }
+.titlebar .title { font-size: 13px; }
+
+/* Settings content */
+.page { overflow: auto; padding: 22px 24px 18px; }
+.page .lede { margin: 0 0 18px; color: var(--muted); }
+.field-label { display: block; font-weight: 600; margin-bottom: 6px; }
+.path-row { display: flex; gap: 8px; align-items: center; }
+.path-row .path { min-width: 0; flex: 1; }
+.err { color: var(--danger); font-size: 12.5px; margin-top: 6px; display: none; }
+.err.show { display: block; }
+input.invalid { border-color: var(--danger); }
+.help { color: var(--muted); font-size: 12.5px; margin-top: 8px; }
+.inline { display: inline-flex; align-items: center; gap: 8px; }
+.row.disabled .label { opacity: .5; }
+select { padding-right: 28px; }
+.right { display: flex; gap: 8px; align-items: center; }
+
+.status-card .icon-circle { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; flex: none;
+  background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
+.status-card.busy .icon-circle { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+.status-card.warn .icon-circle { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
+.status-card strong { display: block; }
+.status-card .muted { font-size: 12.5px; }
+.spin { animation: spin 0.9s linear infinite; transform-origin: 50% 50%; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin, .progress i { animation: none; } }
+
+.about-head { display: flex; gap: 14px; align-items: center; margin-bottom: 16px; }
+.about-head svg { width: 40px; height: 40px; flex: none; }
+.about-head h3 { margin: 0; font-size: 18px; }
+.about-head p { margin: 2px 0 0; color: var(--muted); }
+.diag .field-label { margin-top: 16px; }
+.diag .field-label:first-child { margin-top: 0; }
+.diag .path { font-size: 12px; }
+.diag-actions { display: flex; align-items: center; gap: 12px; margin-top: 22px; }
+.diag-actions .muted { font-size: 12.5px; }
+.notes h4 { margin: 10px 0 4px; font-size: 13px; }
+.notes h4:first-child { margin-top: 0; }
+.notes ul { margin: 0; padding-left: 18px; }
+.notes li + li { margin-top: 4px; }
+
+/* Theme preview tiles */
+.theme-preview { display: flex; gap: 10px; margin-top: 14px; }
+.theme-preview figure { margin: 0; flex: 1; }
+.theme-preview figcaption { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+.mini { height: 64px; border-radius: 6px; border: 1px solid var(--border); overflow: hidden; display: grid; grid-template-rows: 14px 1fr; }
+.mini.l { background: #f5f5f5; } .mini.l b { background: #ebebeb; } .mini.l i { margin: 10px; height: 10px; width: 50%; border-radius: 3px; background: #007850; }
+.mini.d { background: #1c1c1c; } .mini.d b { background: #262626; } .mini.d i { margin: 10px; height: 10px; width: 50%; border-radius: 3px; background: #5fd3a0; }
+
+/* Remote servers */
+.servers-body { display: grid; grid-template-columns: 1fr 140px; gap: 14px; padding: 18px 20px; }
+.server-list { list-style: none; margin: 0; padding: 4px; min-height: 260px; max-height: 300px; overflow: auto;
+  background: var(--raised); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+.server-list li { border-radius: var(--radius); }
+.server-list button { all: unset; box-sizing: border-box; display: grid; grid-template-columns: 14px 1fr; gap: 10px; align-items: center;
+  width: 100%; padding: 9px 10px; border-radius: var(--radius); cursor: default; }
+.server-list button:hover { background: color-mix(in srgb, var(--text) 5%, transparent); }
+.server-list button[aria-selected="true"] { background: var(--selection); }
+.server-list button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.server-list .name { font-weight: 600; display: flex; gap: 8px; align-items: center; }
+.server-list .meta { color: var(--muted); font-size: 12.5px; font-family: "Cascadia Mono", Consolas, monospace; }
+.badge { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: var(--selection); color: var(--accent); }
+.active-dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--border); }
+.active-dot.on { background: var(--accent); border-color: var(--accent); }
+.server-actions { display: flex; flex-direction: column; gap: 8px; }
+.server-actions .gap { height: 10px; }
+.empty { padding: 36px 20px; text-align: center; color: var(--muted); }
+.empty strong { display: block; color: var(--text); margin-bottom: 4px; }
+
+/* Server editor form */
+.form { padding: 18px 22px 8px; display: grid; grid-template-columns: 130px 1fr; gap: 10px 14px; align-items: start; }
+.form label.l { padding-top: 7px; }
+.form input[type="text"], .form input[type="password"], .form select { width: 100%; }
+.form input[type="password"] { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 6px 10px; min-height: 32px; }
+.form .port { width: 96px !important; }
+.form .check { grid-column: 2; display: flex; gap: 8px; align-items: center; }
+.footer .left { margin-right: auto; display: flex; gap: 8px; }
+
+/* Message dialog */
+.msg { display: flex; gap: 14px; padding: 20px 22px 18px; }
+.msg .glyph { width: 32px; height: 32px; flex: none; }
+.msg p { margin: 0; white-space: pre-line; }
+.msg p + p { margin-top: 8px; color: var(--muted); }
+.glyph.info { color: var(--accent); } .glyph.warning { color: #c98a00; } .glyph.error { color: var(--danger); } .glyph.question { color: var(--accent); }
+:root[data-theme="dark"] .glyph.warning { color: #f0c05a; }
+
+/* Update dialog */
+.update-body { padding: 20px 22px 16px; }
+.update-body .ver { display: flex; gap: 10px; align-items: baseline; margin-bottom: 10px; }
+.update-body .ver strong { font-size: 18px; }
+.progress { height: 4px; border-radius: 2px; background: var(--border); overflow: hidden; margin-top: 14px; display: none; }
+.progress.show { display: block; }
+.progress i { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 2px; transition: width .12s linear; }
+.update-body .state { margin-top: 12px; font-size: 13px; }
+.update-body .state.error { color: var(--danger); }
+
+/* Taskbar + tray */
+.taskbar { position: absolute; left: 0; right: 0; bottom: 0; height: 48px; background: rgba(28,30,33,.92); color: #f2f2f2;
+  display: flex; align-items: center; justify-content: flex-end; gap: 6px; padding: 0 12px; backdrop-filter: blur(20px); font-size: 12px; }
+:root:not([data-theme="dark"]) .taskbar { background: rgba(238,240,243,.92); color: #1b1b1b; }
+.tray-btn { all: unset; width: 32px; height: 32px; display: grid; place-items: center; border-radius: 4px; cursor: pointer; position: relative; }
+.tray-btn:hover { background: rgba(127,127,127,.18); }
+.tray-btn:focus-visible { outline: 2px solid var(--accent); }
+.tray-btn svg { width: 20px; height: 20px; }
+.tray-tip { position: absolute; bottom: 42px; right: 0; white-space: nowrap; background: var(--raised); color: var(--text); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 4px 8px; font-size: 12px; box-shadow: 0 4px 12px rgba(0,0,0,.2); opacity: 0; pointer-events: none; transition: opacity .15s; }
+.tray-btn:hover .tray-tip { opacity: 1; }
+.clock { text-align: right; line-height: 1.25; padding: 0 6px; }
+
+/* Tray menu */
+.menu { position: absolute; right: 64px; bottom: 54px; width: 260px; background: var(--raised); color: var(--text); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 4px; box-shadow: 0 10px 30px rgba(0,0,0,.28); z-index: 50; }
+.menu[hidden] { display: none; }
+.menu button { all: unset; box-sizing: border-box; display: grid; grid-template-columns: 20px 1fr 14px; gap: 8px; align-items: center; width: 100%;
+  padding: 7px 10px; border-radius: var(--radius); cursor: default; }
+.menu button:hover:not([aria-disabled="true"]), .menu button:focus-visible { background: color-mix(in srgb, var(--text) 7%, transparent); }
+.menu button[aria-disabled="true"] { color: var(--muted); opacity: .6; }
+.menu hr { border: 0; border-top: 1px solid var(--border); margin: 4px 6px; }
+.menu svg { width: 14px; height: 14px; }
+.menu .sub { right: 268px; bottom: auto; top: 30px; width: 200px; position: absolute; }
+.menu-wrap { position: relative; }
+
+/* Native Windows notification (OS-drawn; wording only) */
+.toast-win { position: absolute; right: 12px; bottom: 58px; width: 360px; background: #2b2b2b; color: #f3f3f3; border-radius: 8px;
+  padding: 14px 16px; box-shadow: 0 12px 32px rgba(0,0,0,.4); font-size: 13px; border: 1px solid #3a3a3a; z-index: 60; }
+:root:not([data-theme="dark"]) .toast-win { background: #f9f9f9; color: #1b1b1b; border-color: #dedede; }
+.toast-win[hidden] { display: none; }
+.toast-win header { display: flex; gap: 8px; align-items: center; font-size: 12px; opacity: .8; margin-bottom: 8px; }
+.toast-win header svg { width: 16px; height: 16px; }
+.toast-win strong { display: block; margin-bottom: 2px; }
+.toast-win .x { margin-left: auto; all: unset; cursor: pointer; opacity: .7; padding: 0 4px; }
+</style>
+</head>
+<body>
+
+<!-- ===== Mockup harness (not part of the app) ===== -->
+<div class="harness" role="toolbar" aria-label="Mockup controls">
+  <b>Clipped Image to Path 1.7.3 · redesign mockup</b>
+  <span class="tag">All actions are preview behavior</span>
+  <span class="sep"></span>
+  <div class="group" aria-label="Screens">
+    <button data-open="tray">Tray menu</button>
+    <button data-open="settings:saved">Settings</button>
+    <button data-open="settings:about">About</button>
+    <button data-open="servers">Remote servers</button>
+    <button data-open="editor-add">Add server</button>
+    <button data-open="editor-edit">Edit server</button>
+    <button data-open="update">Update available</button>
+    <button data-open="toast-enabled">Toast: upload on</button>
+    <button data-open="toast-reminder">Toast: reminder</button>
+    <button data-open="msg-uptodate">Up to date</button>
+    <button data-open="msg-checkfail">Check failed</button>
+  </div>
+  <span class="sep"></span>
+  <div class="group">
+    <span class="tag">Windows theme</span>
+    <button data-win-theme="light">Light</button><button data-win-theme="dark">Dark</button>
+  </div>
+  <div class="group">
+    <span class="tag">Tray</span>
+    <select id="h-tray" aria-label="Tray icon state">
+      <option value="idle">Idle</option><option value="upload">Remote upload on</option><option value="uploading">Uploading</option>
+    </select>
+  </div>
+  <div class="group">
+    <span class="tag">Scenarios</span>
+    <select id="h-check" aria-label="Update check result">
+      <option value="available">Check: 1.7.4 available</option><option value="uptodate">Check: up to date</option><option value="fail">Check: fails</option>
+    </select>
+    <select id="h-download" aria-label="Download result">
+      <option value="ok">Download: verified</option><option value="timeout">Download: times out</option><option value="fail">Download: checksum fails</option>
+    </select>
+    <select id="h-test" aria-label="Connection test result">
+      <option value="ok">Test: succeeds</option><option value="fail">Test: fails</option>
+    </select>
+    <label><input type="checkbox" id="h-savefail"> Save fails</label>
+    <label><input type="checkbox" id="h-noservers"> No servers</label>
+  </div>
+</div>
+
+<div class="desktop">
+  <div class="stage" id="stage">
+
+    <!-- ===== Settings ===== -->
+    <section class="window settings" id="w-settings" role="dialog" aria-modal="true" aria-labelledby="t-settings" hidden>
+      <div class="titlebar">
+        <svg class="app-icon" viewBox="0 0 32 32" aria-hidden="true"><use href="#ico-app"/></svg>
+        <span class="title" id="t-settings">Clipped Image to Path Settings <small>(v1.7.3)</small></span>
+        <div class="winctl"><button data-close="settings" aria-label="Close"><svg viewBox="0 0 10 10"><use href="#ico-x"/></svg></button></div>
+      </div>
+      <div class="tabs" role="tablist">
+        <button class="tab" role="tab" data-page="p-saved" aria-selected="true">Saved images</button>
+        <button class="tab" role="tab" data-page="p-clipboard" aria-selected="false">Clipboard</button>
+        <button class="tab" role="tab" data-page="p-remote" aria-selected="false">Remote upload</button>
+        <button class="tab" role="tab" data-page="p-updates" aria-selected="false">Updates</button>
+        <button class="tab" role="tab" data-page="p-appearance" aria-selected="false">Appearance</button>
+        <button class="tab" role="tab" data-page="p-about" aria-selected="false">About</button>
+        <button class="tab" role="tab" data-page="p-diagnostics" aria-selected="false">Diagnostics</button>
+      </div>
+
+      <div class="page active" id="p-saved" role="tabpanel">
+        <p class="lede">Choose where copied images are saved as PNG files.</p>
+        <label class="field-label" for="f-folder" title="Folder where copied clipboard images are saved as PNG files.">Output folder</label>
+        <div class="path-row">
+          <input type="text" class="path" id="f-folder" title="Folder where copied clipboard images are saved as PNG files.">
+          <button class="btn" id="b-browse" title="Choose the folder where copied clipboard images are saved.">Browse…</button>
+          <button class="btn" id="b-openfolder" title="Open the folder currently selected above in File Explorer.">Open folder</button>
+        </div>
+        <div class="err" id="e-folder">Choose an output folder. Images can't be saved without one.</div>
+        <p class="help">Each copied image is saved here as a PNG, and its path replaces the image on the clipboard. A new folder is created when you save.</p>
+        <div class="card facts">
+          <div class="row"><span class="label">File names<span>Each image is named by the time it was copied</span></span>
+            <code>clipboard_2026-10-20_11-24-05_123.png</code></div>
+          <div class="row"><span class="label">Clean-up<span>Older images in this folder are deleted automatically</span></span>
+            <span class="muted">Keeps the newest 500</span></div>
+        </div>
+      </div>
+
+      <div class="page" id="p-clipboard" role="tabpanel">
+        <p class="lede">Choose how saved image paths are pasted.</p>
+        <div class="card">
+          <label class="row" title="Copy saved paths in /mnt/... format for use in WSL terminals.">
+            <span class="label">Convert clipboard path to WSL format<span>Copies <code>/mnt/c/…</code> paths for WSL terminals</span></span>
+            <span class="switch"><input type="checkbox" id="f-wsl"><i></i></span>
+          </label>
+          <label class="row" title="Keep screenshots available for normal Ctrl+V, and paste the saved file path with Shift+Insert.">
+            <span class="label">Paste saved image path with Shift+Insert<span>Ctrl+V still pastes the image itself</span></span>
+            <span class="switch"><input type="checkbox" id="f-smart"><i></i></span>
+          </label>
+        </div>
+      </div>
+
+      <div class="page" id="p-remote" role="tabpanel">
+        <p class="lede">Upload saved images to your selected remote server.</p>
+        <div class="card">
+          <label class="row" title="Upload each saved clipboard image to the selected remote server when enabled.">
+            <span class="label">Remote upload<span id="remote-sub">Uploads each saved image to dev-box</span></span>
+            <span class="switch"><input type="checkbox" id="f-upload"><i></i></span>
+          </label>
+          <div class="row" id="row-remind" title="Remind you that remote upload is still on so you can disable it when no longer needed.">
+            <span class="label">Remind me while upload is on<span>A Windows notification, from 1 to 1,440 minutes</span></span>
+            <span class="inline"><span class="muted">Every</span>
+              <input type="number" id="f-minutes" min="1" max="1440" aria-label="Reminder interval in minutes"
+                title="Choose how often the remote upload notification appears, from 1 to 1,440 minutes.">
+              <span class="muted">min</span></span>
+            <span class="switch"><input type="checkbox" id="f-remind" aria-label="Remind me while upload is on"><i></i></span>
+          </div>
+          <div class="row">
+            <span class="label">Remote servers<span id="servers-sub">2 servers · active: dev-box</span></span>
+            <button class="btn" id="b-servers" title="Add, edit, remove, select, and test remote server profiles.">Manage servers…</button>
+          </div>
+        </div>
+        <div class="err" id="e-minutes">Enter a reminder interval from 1 to 1,440 minutes.</div>
+      </div>
+
+      <div class="page" id="p-updates" role="tabpanel">
+        <p class="lede">Choose when Clipped Image to Path checks GitHub for newer releases.</p>
+        <div class="card status-card" id="upd-card">
+          <span class="icon-circle" id="upd-icon"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><use href="#ico-check"/></svg></span>
+          <div><strong id="upd-title">Clipped Image to Path is up to date</strong>
+            <span class="muted" id="upd-sub">Version 1.7.3 is the latest stable release · Last checked today at 10:33</span></div>
+        </div>
+        <div class="section" style="margin-top:18px">
+          <label class="field-label" for="f-freq" title="Check at startup, then at this interval. Never disables all automatic checks. Use Check for updates here to check manually.">Check for updates</label>
+          <div class="right">
+            <select id="f-freq" title="Check at startup, then at this interval. Never disables all automatic checks. Use Check for updates here to check manually.">
+              <option value="hourly">Once an hour</option><option value="daily">Once a day (default)</option>
+              <option value="weekly">Once a week</option><option value="monthly">Once a month</option><option value="never">Never</option>
+            </select>
+            <button class="btn" id="b-check" title="Check GitHub now, even when automatic checks are set to Never.">Check for updates</button>
+          </div>
+          <p class="help">Checks at startup, then at this interval. Never turns off automatic checks; you can still check here.</p>
+        </div>
+        <div class="card section" style="padding:14px 16px">
+          <strong>Verified installers</strong>
+          <p class="help" style="margin-top:4px">Updates download only after you choose Update. The installer comes from the official GitHub release and is checked against its SHA-256 before setup opens.</p>
+        </div>
+      </div>
+
+      <div class="page" id="p-appearance" role="tabpanel">
+        <p class="lede">Choose how Clipped Image to Path looks.</p>
+        <label class="field-label" id="theme-label">Theme</label>
+        <div class="segmented" role="group" aria-labelledby="theme-label">
+          <button type="button" data-theme-choice="system" aria-pressed="true">System (default)</button>
+          <button type="button" data-theme-choice="light" aria-pressed="false">Light</button>
+          <button type="button" data-theme-choice="dark" aria-pressed="false">Dark</button>
+        </div>
+        <p class="help" id="theme-help">System follows the Windows app mode. Windows is using Light right now.</p>
+        <div class="theme-preview" aria-hidden="true">
+          <figure><div class="mini l"><b></b><i></i></div><figcaption>Light</figcaption></figure>
+          <figure><div class="mini d"><b></b><i></i></div><figcaption>Dark</figcaption></figure>
+        </div>
+      </div>
+
+      <div class="page" id="p-about" role="tabpanel">
+        <div class="about-head">
+          <svg viewBox="0 0 32 32" aria-hidden="true"><use href="#ico-app"/></svg>
+          <div><h3>Clipped Image to Path</h3><p>Version 1.7.3 · Built 2026-10-20 11:02 · © 2026 Alex LV</p></div>
+          <div class="actions">
+            <button class="btn" data-preview="opens github.com/alexlvcom/ClippedImageToPath">Project page</button>
+          </div>
+        </div>
+        <label class="field-label">Release notes for v1.7.3</label>
+        <div class="card notes" tabindex="0" aria-label="Release notes for v1.7.3">
+          <h4>Main changes</h4>
+          <ul>
+            <li><b>Settings only change on Save:</b> if a setting can't be saved, Settings now shows the error and stays open with your edits instead of closing. Cancel, Esc, or closing the window discards every unsaved change.</li>
+            <li><b>Remote servers use Save and Cancel:</b> adding, editing, removing, or selecting the active server applies only when you click Save in the Remote Servers window. Cancel discards those edits.</li>
+          </ul>
+          <h4>Other updates</h4>
+          <ul>
+            <li>Save the settings file atomically so an interrupted write cannot leave it half-written.</li>
+            <li>Apply a changed remote upload reminder interval as soon as Settings is saved.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="page" id="p-diagnostics" role="tabpanel">
+        <p class="lede">Where Clipped Image to Path runs from and keeps its files. Include these details when reporting a problem.</p>
+        <div class="diag">
+          <label class="field-label" for="d-exe">Executable</label>
+          <div class="path-row"><input id="d-exe" type="text" class="path" readonly value="C:\Users\alex\AppData\Local\Programs\Clipped Image to Path\ClippedImageToPath.exe"><button class="btn" data-preview="opens the install folder in File Explorer">Open</button></div>
+          <label class="field-label" for="d-settings">Settings</label>
+          <div class="path-row"><input id="d-settings" type="text" class="path" readonly value="C:\Users\alex\AppData\Roaming\ClippedImageToPath"><button class="btn" data-preview="opens the settings folder in File Explorer">Open</button></div>
+          <label class="field-label" for="d-log">Log</label>
+          <div class="path-row"><input id="d-log" type="text" class="path" readonly value="C:\source\temp\bridge.log"><button class="btn" data-preview="opens the log folder in File Explorer">Open</button></div>
+        </div>
+        <div class="diag-actions">
+          <button class="btn" data-preview="copied version, paths and build date to the clipboard">Copy details</button>
+          <span class="muted">Copies the version, build date and these paths.</span>
+        </div>
+      </div>
+
+      <div class="footer">
+        <span class="dirty" id="s-dirty" hidden>Unsaved changes</span>
+        <button class="btn primary" id="s-save" title="Save these settings and apply them immediately.">Save</button>
+        <button class="btn" id="s-cancel" title="Close without saving changes.">Cancel</button>
+      </div>
+    </section>
+
+    <!-- ===== Remote servers ===== -->
+    <section class="window servers" id="w-servers" role="dialog" aria-modal="true" aria-labelledby="t-servers" hidden>
+      <div class="titlebar">
+        <svg class="app-icon" viewBox="0 0 32 32" aria-hidden="true"><use href="#ico-app"/></svg>
+        <span class="title" id="t-servers">Remote Servers</span>
+        <div class="winctl"><button data-close="servers" aria-label="Close"><svg viewBox="0 0 10 10"><use href="#ico-x"/></svg></button></div>
+      </div>
+      <div class="servers-body">
+        <div>
+          <p class="muted" style="margin:0 0 8px">The active server receives uploads. Double-click a server to edit it.</p>
+          <ul class="server-list" id="server-list" role="listbox" aria-label="Remote servers"></ul>
+        </div>
+        <div class="server-actions" style="padding-top:30px">
+          <button class="btn" id="sv-add">Add…</button>
+          <button class="btn" id="sv-edit">Edit…</button>
+          <button class="btn" id="sv-remove">Remove</button>
+          <span class="gap"></span>
+          <button class="btn" id="sv-active">Set as active</button>
+          <button class="btn" id="sv-test">Test</button>
+        </div>
+      </div>
+      <div class="footer">
+        <span class="dirty" id="sv-dirty" hidden>Unsaved changes</span>
+        <button class="btn primary" id="sv-save">Save</button>
+        <button class="btn" id="sv-cancel">Cancel</button>
+      </div>
+    </section>
+
+    <!-- ===== Add / Edit server ===== -->
+    <section class="window dialog" id="w-editor" role="dialog" aria-modal="true" aria-labelledby="t-editor" hidden>
+      <div class="titlebar">
+        <svg class="app-icon" viewBox="0 0 32 32" aria-hidden="true"><use href="#ico-app"/></svg>
+        <span class="title" id="t-editor">Add Remote Server</span>
+        <div class="winctl"><button data-close="editor" aria-label="Close"><svg viewBox="0 0 10 10"><use href="#ico-x"/></svg></button></div>
+      </div>
+      <form class="form" id="ed-form" novalidate>
+        <label class="l" for="ed-name">Name</label>
+        <div><input type="text" id="ed-name"><div class="err" data-for="ed-name"></div></div>
+        <label class="l" for="ed-proto">Protocol</label>
+        <div><select id="ed-proto">
+          <option value="sftp">SFTP (SSH)</option><option value="ftp">FTP (plain)</option>
+          <option value="ftpes">FTPS (explicit TLS)</option><option value="ftps">FTPS (implicit TLS)</option></select></div>
+        <label class="l" for="ed-host">Host</label>
+        <div><input type="text" id="ed-host" placeholder="example.com"><div class="err" data-for="ed-host"></div></div>
+        <label class="l" for="ed-port">Port</label>
+        <div><input type="text" id="ed-port" class="port" inputmode="numeric"><div class="err" data-for="ed-port"></div></div>
+        <label class="l" for="ed-user">User</label>
+        <div><input type="text" id="ed-user"><div class="err" data-for="ed-user"></div></div>
+        <label class="l" for="ed-pass">Password</label>
+        <div><input type="password" id="ed-pass"><div class="err" data-for="ed-pass"></div></div>
+        <label class="l" for="ed-dir">Remote directory</label>
+        <div><input type="text" id="ed-dir" placeholder="/home/user/clipboard"><div class="err" data-for="ed-dir"></div></div>
+        <label class="check"><span class="switch"><input type="checkbox" id="ed-passive"><i></i></span> <span id="ed-passive-label">Use passive mode (FTP/FTPS)</span></label>
+      </form>
+      <div class="footer">
+        <div class="left"><button class="btn" id="ed-test">Test connection</button></div>
+        <button class="btn primary" id="ed-save">Save</button>
+        <button class="btn" id="ed-cancel">Cancel</button>
+      </div>
+    </section>
+
+    <!-- ===== Update available ===== -->
+    <section class="window dialog" id="w-update" role="dialog" aria-modal="true" aria-labelledby="t-update" hidden>
+      <div class="titlebar">
+        <svg class="app-icon" viewBox="0 0 32 32" aria-hidden="true"><use href="#ico-app"/></svg>
+        <span class="title" id="t-update">Update Clipped Image to Path <small>(v1.7.3)</small></span>
+        <div class="winctl"><button data-close="update" aria-label="Close"><svg viewBox="0 0 10 10"><use href="#ico-x"/></svg></button></div>
+      </div>
+      <div class="update-body">
+        <div class="ver"><strong>Version 1.7.4 is available</strong><span class="muted">You have 1.7.3</span></div>
+        <p style="margin:0" id="up-msg">Update downloads and verifies the installer, then opens setup. Setup closes the app and restarts it after updating.</p>
+        <div class="progress" id="up-progress"><i></i></div>
+        <p class="state" id="up-state" hidden></p>
+      </div>
+      <div class="footer">
+        <button class="btn primary" id="up-go">Update</button>
+        <button class="btn" id="up-later">Later</button>
+      </div>
+    </section>
+
+    <!-- ===== Message dialog (replaces MessageBox) ===== -->
+    <section class="window dialog small" id="w-msg" role="alertdialog" aria-modal="true" aria-labelledby="t-msg" aria-describedby="m-text" hidden>
+      <div class="titlebar">
+        <svg class="app-icon" viewBox="0 0 32 32" aria-hidden="true"><use href="#ico-app"/></svg>
+        <span class="title" id="t-msg">Clipped Image to Path</span>
+        <div class="winctl"><button data-close="msg" aria-label="Close"><svg viewBox="0 0 10 10"><use href="#ico-x"/></svg></button></div>
+      </div>
+      <div class="msg">
+        <svg class="glyph" id="m-glyph" viewBox="0 0 32 32" aria-hidden="true"></svg>
+        <div><p id="m-text"></p><p id="m-detail" hidden></p></div>
+      </div>
+      <div class="footer" id="m-buttons"></div>
+    </section>
+
+    <div class="scrim" id="scrim" hidden></div>
+  </div>
+
+  <!-- Tray menu -->
+  <div class="menu" id="tray-menu" role="menu" aria-label="Clipped Image to Path" hidden>
+    <button role="menuitemcheckbox" id="mi-upload" aria-checked="false"><span id="mi-upload-check"></span><span>Enable remote upload</span><span></span></button>
+    <div class="menu-wrap">
+      <button role="menuitem" id="mi-active" aria-haspopup="true"><span></span><span id="mi-active-text">Active server: dev-box</span><svg viewBox="0 0 16 16"><use href="#ico-chev"/></svg></button>
+      <div class="menu sub" id="tray-sub" role="menu" hidden></div>
+    </div>
+    <hr>
+    <button role="menuitem" id="mi-settings"><span></span><span>Settings…</span><span></span></button>
+    <button role="menuitem" id="mi-exit"><span></span><span>Exit</span><span></span></button>
+  </div>
+
+  <!-- Native Windows notification -->
+  <div class="toast-win" id="toast-win" role="status" hidden>
+    <header><svg viewBox="0 0 32 32" aria-hidden="true"><use href="#ico-app"/></svg>Clipped Image to Path<button class="x" id="toast-x" aria-label="Dismiss">
+      <svg width="10" height="10" viewBox="0 0 10 10"><use href="#ico-x"/></svg></button></header>
+    <strong id="tw-title"></strong><span id="tw-text"></span>
+  </div>
+
+  <div class="taskbar">
+    <button class="tray-btn" id="tray-btn" aria-label="Clipped Image to Path" aria-haspopup="menu">
+      <svg viewBox="0 0 32 32" id="tray-svg" aria-hidden="true"></svg>
+      <span class="tray-tip" id="tray-tip">Clipped Image to Path</span>
+    </button>
+    <div class="clock">11:24<br>20/10/2026</div>
+  </div>
+</div>
+<div class="toast" role="status" aria-live="polite"></div>
+
+<!-- Authored icon set: 2px strokes, rounded caps -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="ico-app" viewBox="0 0 32 32">
+      <rect x="2" y="2" width="28" height="28" rx="7" fill="#007850"/>
+      <rect x="9" y="8" width="10" height="8" fill="rgba(255,255,255,.24)"/>
+      <rect x="13" y="18" width="8" height="3" fill="rgba(255,255,255,.24)"/>
+      <rect x="8" y="7" width="12" height="10" fill="none" stroke="#fff" stroke-width="2"/>
+      <path d="M12 20h12v-8" fill="none" stroke="#fff" stroke-width="2"/>
+    </symbol>
+    <symbol id="ico-x" viewBox="0 0 10 10"><path d="M1 1l8 8M9 1L1 9" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round"/></symbol>
+    <symbol id="ico-check" viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="ico-chev" viewBox="0 0 16 16"><path d="M6 3.5L10.5 8 6 12.5" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="ico-gear" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2" fill="none" stroke="currentColor" stroke-width="1.4"/>
+      <path d="M8 1.8v1.6M8 12.6v1.6M1.8 8h1.6M12.6 8h1.6M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M3.6 12.4l1.1-1.1M11.3 4.7l1.1-1.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></symbol>
+    <symbol id="ico-spin" viewBox="0 0 16 16"><path d="M8 2a6 6 0 1 1-6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></symbol>
+    <symbol id="ico-alert" viewBox="0 0 16 16"><path d="M8 4.5v4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="8" cy="11.8" r="1.1" fill="currentColor"/></symbol>
+  </defs>
+</svg>
+
+<script>
+/* ===== Mockup behavior (preview only) ===== */
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => [...document.querySelectorAll(s)];
+
+/* ---- Theme: app choice + simulated Windows app mode ---- */
+let windowsTheme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+let appTheme = 'system';         // what the app is showing now (draft preview)
+let savedTheme = 'system';       // what Save last stored
+function effectiveTheme() { return appTheme === 'system' ? windowsTheme : appTheme; }
+// Overrides the foundation's applyTheme so "System" can follow the simulated Windows mode too.
+function applyTheme(choice) {
+  appTheme = choice;
+  document.documentElement.setAttribute('data-theme', effectiveTheme());
+  $$('[data-theme-choice]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.themeChoice === choice)));
+  $$('[data-win-theme]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.winTheme === windowsTheme)));
+  const help = $('#theme-help');
+  if (help) help.textContent = `System follows the Windows app mode. Windows is using ${windowsTheme === 'dark' ? 'Dark' : 'Light'} right now.`;
+  if (typeof refreshDirty === 'function') refreshDirty();
+}
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => { windowsTheme = e.matches ? 'dark' : 'light'; applyTheme(appTheme); });
+$$('[data-win-theme]').forEach(b => b.addEventListener('click', () => { windowsTheme = b.dataset.winTheme; applyTheme(appTheme); }));
+
+function previewToast(msg) { const t = $('.toast'); t.textContent = 'Preview: ' + msg; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2200); }
+
+/* ---- Window stack ---- */
+const stack = [];
+function show(id) {
+  const w = $('#w-' + id);
+  w.hidden = false;
+  if (!stack.includes(id)) stack.push(id);
+  layer();
+  const focusTarget = w.querySelector('[data-autofocus]') || w.querySelector('.footer .primary') || w.querySelector('button');
+  setTimeout(() => focusTarget && focusTarget.focus(), 0);
+}
+function hide(id) {
+  $('#w-' + id).hidden = true;
+  const i = stack.indexOf(id); if (i >= 0) stack.splice(i, 1);
+  layer();
+}
+function layer() {
+  const scrim = $('#scrim');
+  // scrim sits under the topmost window when a parent window is behind it
+  stack.forEach((id, i) => { $('#w-' + id).style.zIndex = String(10 + i * 2); });
+  if (stack.length > 1) { scrim.hidden = false; scrim.style.zIndex = String(10 + (stack.length - 1) * 2 - 1); }
+  else scrim.hidden = true;
+}
+function closeAll() { [...stack].forEach(hide); $('#tray-menu').hidden = true; $('#toast-win').hidden = true; }
+$$('[data-close]').forEach(b => b.addEventListener('click', () => {
+  const id = b.dataset.close;
+  if (id === 'settings') cancelSettings(); else if (id === 'servers') cancelServers();
+  else if (id === 'editor') hide('editor'); else if (id === 'update') hide('update'); else if (id === 'msg') msgResolve(null);
+}));
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (!$('#tray-menu').hidden) { $('#tray-menu').hidden = true; return; }
+  const top = stack[stack.length - 1]; if (!top) return;
+  $(`[data-close="${top}"]`).click();
+});
+
+/* ---- Message dialog ---- */
+const GLYPHS = {
+  info: '<circle cx="16" cy="16" r="13" fill="currentColor" opacity=".14"/><path d="M16 14v8" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle cx="16" cy="10" r="1.5" fill="currentColor"/>',
+  warning: '<path d="M16 4l13 23H3z" fill="currentColor" opacity=".16"/><path d="M16 12v7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle cx="16" cy="23" r="1.5" fill="currentColor"/>',
+  error: '<circle cx="16" cy="16" r="13" fill="currentColor" opacity=".14"/><path d="M11.5 11.5l9 9M20.5 11.5l-9 9" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>',
+  question: '<circle cx="16" cy="16" r="13" fill="currentColor" opacity=".14"/><path d="M12.5 12.5a3.6 3.6 0 1 1 5 3.3c-1 .5-1.5 1.2-1.5 2.4" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round"/><circle cx="16" cy="23" r="1.5" fill="currentColor"/>',
+  success: '<circle cx="16" cy="16" r="13" fill="currentColor" opacity=".14"/><path d="M10.5 16.5l4 4 7-8" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>'
+};
+let msgResolve = () => {};
+function message(kind, text, detail, buttons = [{ label: 'OK', value: 'ok', primary: true }]) {
+  return new Promise(resolve => {
+    const g = $('#m-glyph'); g.setAttribute('class', 'glyph ' + (kind === 'success' ? 'info' : kind)); g.innerHTML = GLYPHS[kind];
+    $('#m-text').textContent = text;
+    const d = $('#m-detail'); d.hidden = !detail; d.textContent = detail || '';
+    const bar = $('#m-buttons'); bar.innerHTML = '';
+    buttons.forEach(b => { const el = document.createElement('button'); el.className = 'btn' + (b.primary ? ' primary' : '');
+      el.textContent = b.label; el.addEventListener('click', () => msgResolve(b.value)); bar.appendChild(el); });
+    msgResolve = (v) => { hide('msg'); resolve(v); };
+    show('msg');
+  });
+}
+
+/* ---- Settings model (draft until Save) ---- */
+const saved = { folder: 'C:\\source\\temp', wsl: true, smart: true, upload: false, remind: true, minutes: 30, freq: 'hourly', theme: 'system' };
+let draft = null;
+const fields = { folder: '#f-folder', wsl: '#f-wsl', smart: '#f-smart', upload: '#f-upload', remind: '#f-remind', minutes: '#f-minutes', freq: '#f-freq' };
+function loadSettings() {
+  draft = { ...saved };
+  $('#f-folder').value = draft.folder; $('#f-wsl').checked = draft.wsl; $('#f-smart').checked = draft.smart;
+  $('#f-upload').checked = draft.upload; $('#f-remind').checked = draft.remind; $('#f-minutes').value = draft.minutes; $('#f-freq').value = draft.freq;
+  savedTheme = saved.theme; applyTheme(saved.theme);
+  $$('.err').forEach(e => e.classList.remove('show')); $('#f-folder').classList.remove('invalid');
+  syncDependencies(); refreshDirty(); refreshServerSummary();
+}
+function readDraft() {
+  draft.folder = $('#f-folder').value; draft.wsl = $('#f-wsl').checked; draft.smart = $('#f-smart').checked;
+  draft.upload = $('#f-upload').checked; draft.remind = $('#f-remind').checked; draft.minutes = Number($('#f-minutes').value); draft.freq = $('#f-freq').value;
+  draft.theme = appTheme;
+}
+function refreshDirty() {
+  if (!draft) return; readDraft();
+  const dirty = Object.keys(saved).some(k => String(saved[k]) !== String(draft[k]));
+  $('#s-dirty').hidden = !dirty;
+}
+function syncDependencies() {
+  const up = $('#f-upload').checked;
+  $('#row-remind').classList.toggle('disabled', !up);
+  $('#f-remind').disabled = !up;
+  $('#f-minutes').disabled = !up || !$('#f-remind').checked;
+}
+Object.values(fields).forEach(sel => $(sel).addEventListener('input', () => { syncDependencies(); refreshDirty(); }));
+Object.values(fields).forEach(sel => $(sel).addEventListener('change', () => { syncDependencies(); refreshDirty(); }));
+
+async function saveSettings() {
+  readDraft();
+  const folderOk = draft.folder.trim() !== '';
+  $('#e-folder').classList.toggle('show', !folderOk); $('#f-folder').classList.toggle('invalid', !folderOk);
+  const minutesOk = !draft.upload || !draft.remind || (Number.isInteger(draft.minutes) && draft.minutes >= 1 && draft.minutes <= 1440);
+  $('#e-minutes').classList.toggle('show', !minutesOk);
+  if (!folderOk) { selectTab('p-saved'); $('#f-folder').focus(); return; }
+  if (!minutesOk) { selectTab('p-remote'); $('#f-minutes').focus(); return; }
+  if ($('#h-savefail').checked) {
+    await message('error', 'Settings could not be saved.', "Access to the path 'C:\\Users\\alex\\AppData\\Roaming\\ClippedImageToPath\\settings.json' is denied. Your edits are still here; fix the problem and save again.");
+    return; // window stays open with the edits
+  }
+  Object.assign(saved, draft); savedTheme = saved.theme;
+  hide('settings'); draft = null;
+  previewToast('settings saved and applied without restarting');
+  applyTrayState();
+}
+function cancelSettings() { applyTheme(savedTheme); hide('settings'); draft = null; }
+$('#s-save').addEventListener('click', saveSettings);
+$('#s-cancel').addEventListener('click', cancelSettings);
+$('#w-settings').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.target.tagName === 'INPUT' && stack[stack.length - 1] === 'settings') { e.preventDefault(); saveSettings(); }
+});
+function selectTab(pageId) { const tab = $(`.tab[data-page="${pageId}"]`); if (tab) tab.click(); }
+
+$('#b-browse').addEventListener('click', () => {
+  previewToast('opens the Windows folder picker "Choose where clipboard images will be saved"');
+  $('#f-folder').value = 'C:\\Users\\alex\\Pictures\\Clipboard'; refreshDirty();
+});
+$('#b-openfolder').addEventListener('click', () => {
+  const value = $('#f-folder').value.trim();
+  if (value !== saved.folder) {
+    message('warning', 'Could not open the output folder.', 'This folder does not exist yet. Save settings to create it first.');
+  } else previewToast(`opens ${value} in File Explorer`);
+});
+$('#b-servers').addEventListener('click', openServers);
+$('#b-check').addEventListener('click', () => runUpdateCheck(true));
+
+/* ---- Update check ---- */
+let checking = false;
+function setUpdateCard(kind, title, sub) {
+  const card = $('#upd-card'); card.classList.toggle('busy', kind === 'busy'); card.classList.toggle('warn', kind === 'warn');
+  $('#upd-icon').innerHTML = kind === 'busy'
+    ? '<svg width="16" height="16" viewBox="0 0 16 16" class="spin"><use href="#ico-spin"/></svg>'
+    : kind === 'warn' ? '<svg width="16" height="16" viewBox="0 0 16 16"><use href="#ico-alert"/></svg>'
+    : '<svg width="16" height="16" viewBox="0 0 16 16"><use href="#ico-check"/></svg>';
+  $('#upd-title').textContent = title; $('#upd-sub').textContent = sub;
+}
+async function runUpdateCheck(manual) {
+  if (checking) return; checking = true;
+  const btn = $('#b-check'); btn.disabled = true; btn.textContent = 'Checking…';
+  setUpdateCard('busy', 'Checking GitHub for updates…', 'You are running version 1.7.3');
+  await new Promise(r => setTimeout(r, 1100));
+  btn.disabled = false; btn.textContent = 'Check for updates'; checking = false;
+  const result = $('#h-check').value;
+  if (result === 'uptodate') {
+    setUpdateCard('ok', 'Clipped Image to Path is up to date', 'Version 1.7.3 is the latest stable release · Last checked just now');
+    if (manual) message('success', 'You are running version 1.7.3.', 'No newer installer version is available.');
+  } else if (result === 'fail') {
+    setUpdateCard('warn', 'Could not check for updates', 'Last successful check today at 10:33 · GitHub could not be reached');
+    if (manual) message('warning', 'Could not check for updates. Please try again later.', 'No such host is known. (api.github.com:443)');
+  } else {
+    setUpdateCard('busy', 'Version 1.7.4 is available', 'You are running version 1.7.3');
+    openUpdate();
+  }
+}
+
+/* ---- Update dialog ---- */
+function openUpdate() {
+  $('#up-go').disabled = false; $('#up-go').textContent = 'Update';
+  $('#up-progress').classList.remove('show'); const s = $('#up-state'); s.hidden = true; s.className = 'state';
+  show('update');
+}
+$('#up-later').addEventListener('click', () => { hide('update'); previewToast('Later: 1.7.4 is not offered again until the next manual check or restart'); });
+$('#up-go').addEventListener('click', async () => {
+  const go = $('#up-go'); go.disabled = true;
+  const s = $('#up-state'); s.hidden = false; s.className = 'state';
+  const bar = $('#up-progress i'); bar.style.width = '0%'; $('#up-progress').classList.add('show');
+  const r = $('#h-download').value;
+  const total = 53.6, stopAt = r === 'timeout' ? 0.42 : 1;
+  for (let p = 0; p <= stopAt + 1e-9; p += 0.04) {
+    bar.style.width = (p * 100).toFixed(0) + '%';
+    s.textContent = `Downloading the installer… ${(total * p).toFixed(1)} MB of ${total} MB`;
+    await new Promise(res => setTimeout(res, 70));
+  }
+  if (r !== 'timeout') { s.textContent = 'Verifying the installer (SHA-256)…'; await new Promise(res => setTimeout(res, 600)); }
+  $('#up-progress').classList.remove('show');
+  if (r === 'ok') { hide('update'); previewToast('installer verified (SHA-256); setup opens, closes the app and restarts it'); return; }
+  go.disabled = false; go.textContent = 'Try again'; s.classList.add('error');
+  s.textContent = r === 'timeout'
+    ? 'The download timed out. Check your connection and try again.'
+    : 'Update failed: the installer checksum did not match, so setup was not started. Try again.';
+});
+
+/* ---- Remote servers (draft) ---- */
+const savedServers = [
+  { name: 'dev-box', proto: 'sftp', host: 'dev.alexlv.com', port: '22', user: 'alex', pass: '••••••••', dir: '/home/alex/clipboard', passive: true },
+  { name: 'nas', proto: 'ftpes', host: '192.168.1.20', port: '21', user: 'alex', pass: '••••••••', dir: '/volume1/screenshots', passive: true },
+];
+let savedActive = 'dev-box';
+let svDraft = [], svActive = '', svSel = -1;
+const PROTO_LABEL = { sftp: 'SFTP', ftp: 'FTP', ftpes: 'FTPS', ftps: 'FTPS (implicit)' };
+const DEFAULT_PORT = { sftp: '22', ftp: '21', ftpes: '21', ftps: '990' };
+function openServers() {
+  svDraft = $('#h-noservers').checked ? [] : savedServers.map(s => ({ ...s }));
+  svActive = svDraft.length ? savedActive : ''; svSel = svDraft.findIndex(s => s.name === svActive);
+  renderServers(); show('servers');
+}
+function serversDirty() {
+  return JSON.stringify(svDraft) !== JSON.stringify($('#h-noservers').checked ? [] : savedServers) || svActive !== ($('#h-noservers').checked ? '' : savedActive);
+}
+function renderServers() {
+  const ul = $('#server-list'); ul.innerHTML = '';
+  if (!svDraft.length) {
+    ul.innerHTML = '<li class="empty"><strong>No remote servers yet</strong>Add a server to upload saved images to it.</li>';
+  }
+  svDraft.forEach((s, i) => {
+    const li = document.createElement('li');
+    const b = document.createElement('button');
+    b.setAttribute('role', 'option'); b.setAttribute('aria-selected', String(i === svSel));
+    const isActive = s.name === svActive;
+    b.innerHTML = `<span class="active-dot ${isActive ? 'on' : ''}" aria-hidden="true"></span>
+      <span><span class="name">${s.name}${isActive ? '<span class="badge">Active</span>' : ''}</span>
+      <span class="meta">${PROTO_LABEL[s.proto]} ${s.user}@${s.host}:${s.port}</span></span>`;
+    b.addEventListener('click', () => { svSel = i; renderServers(); ul.querySelectorAll('button')[i].focus(); });
+    b.addEventListener('dblclick', () => { svSel = i; openEditor(false); });
+    li.appendChild(b); ul.appendChild(li);
+  });
+  const has = svSel >= 0 && svSel < svDraft.length;
+  ['#sv-edit', '#sv-remove', '#sv-test'].forEach(s => $(s).disabled = !has);
+  $('#sv-active').disabled = !has || svDraft[svSel].name === svActive;
+  $('#sv-dirty').hidden = !serversDirty();
+}
+function refreshServerSummary() {
+  const n = $('#h-noservers').checked ? 0 : savedServers.length;
+  $('#servers-sub').textContent = n ? `${n} servers · active: ${savedActive}` : 'No servers yet';
+  $('#remote-sub').textContent = n ? `Uploads each saved image to ${savedActive}` : 'Add a server before turning upload on';
+}
+$('#sv-add').addEventListener('click', () => openEditor(true));
+$('#sv-edit').addEventListener('click', () => openEditor(false));
+$('#sv-remove').addEventListener('click', async () => {
+  const s = svDraft[svSel];
+  const v = await message('question', `Remove server '${s.name}'?`, 'It is removed when you save the server list.', [
+    { label: 'Remove', value: 'yes', primary: true }, { label: 'Keep', value: 'no' }]);
+  if (v !== 'yes') return;
+  const wasActive = s.name === svActive; svDraft.splice(svSel, 1);
+  if (wasActive) svActive = svDraft[0]?.name || '';
+  svSel = Math.min(svSel, svDraft.length - 1); renderServers();
+});
+$('#sv-active').addEventListener('click', () => { svActive = svDraft[svSel].name; renderServers(); });
+$('#sv-test').addEventListener('click', () => testConnection($('#sv-test'), 'Test'));
+$('#sv-save').addEventListener('click', async () => {
+  if ($('#h-savefail').checked) {
+    await message('error', 'The server list could not be saved.', "Access to the path 'C:\\Users\\alex\\AppData\\Roaming\\ClippedImageToPath\\settings.json' is denied. Your edits are still here.");
+    return;
+  }
+  if (!$('#h-noservers').checked) { savedServers.splice(0, savedServers.length, ...svDraft.map(s => ({ ...s }))); savedActive = svActive; }
+  hide('servers'); refreshServerSummary(); previewToast('server list saved');
+});
+function cancelServers() { hide('servers'); }
+$('#sv-cancel').addEventListener('click', cancelServers);
+
+async function testConnection(btn, label) {
+  btn.disabled = true; btn.textContent = 'Testing…';
+  await new Promise(r => setTimeout(r, 1200));
+  btn.disabled = false; btn.textContent = label;
+  if ($('#h-test').value === 'ok') message('success', 'Connection succeeded.', 'The remote directory is available.');
+  else message('error', 'Connection test failed.', 'Permission denied (password). Check the user and password, then test again.');
+}
+
+/* ---- Server editor ---- */
+let edNew = true;
+function openEditor(isNew) {
+  edNew = isNew;
+  $('#t-editor').textContent = isNew ? 'Add Remote Server' : 'Edit Remote Server';
+  const s = isNew ? { name: suggestName(), proto: 'sftp', host: '', port: '22', user: '', pass: '', dir: '', passive: true } : svDraft[svSel];
+  $('#ed-name').value = s.name; $('#ed-proto').value = s.proto; $('#ed-host').value = s.host; $('#ed-port').value = s.port;
+  $('#ed-user').value = s.user; $('#ed-pass').value = s.pass; $('#ed-dir').value = s.dir; $('#ed-passive').checked = s.passive;
+  $('#ed-proto').dataset.last = s.proto; syncPassive();
+  $$('#ed-form .err').forEach(e => { e.classList.remove('show'); e.textContent = ''; }); $$('#ed-form input').forEach(i => i.classList.remove('invalid'));
+  show('editor'); setTimeout(() => $('#ed-name').focus(), 0);
+}
+function suggestName() { for (let i = 1; ; i++) { const n = `Server ${i}`; if (!svDraft.some(s => s.name.toLowerCase() === n.toLowerCase())) return n; } }
+function syncPassive() {
+  const sftp = $('#ed-proto').value === 'sftp';
+  $('#ed-passive').disabled = sftp; $('#ed-passive-label').style.opacity = sftp ? .5 : 1;
+}
+$('#ed-proto').addEventListener('change', () => {
+  const last = $('#ed-proto').dataset.last, next = $('#ed-proto').value;
+  if ($('#ed-port').value.trim() === DEFAULT_PORT[last]) $('#ed-port').value = DEFAULT_PORT[next];
+  $('#ed-proto').dataset.last = next; syncPassive();
+});
+function fieldError(id, text) { const e = $(`#ed-form .err[data-for="${id}"]`); e.textContent = text; e.classList.add('show'); $('#' + id).classList.add('invalid'); }
+function validateEditor(forTest) {
+  $$('#ed-form .err').forEach(e => { e.classList.remove('show'); e.textContent = ''; }); $$('#ed-form input').forEach(i => i.classList.remove('invalid'));
+  const v = id => $('#' + id).value.trim(); let first = null;
+  const fail = (id, text) => { fieldError(id, text); first = first || id; };
+  if (!forTest) {
+    if (!v('ed-name')) fail('ed-name', 'Enter a name for this server.');
+    else if (svDraft.some((s, i) => (edNew || i !== svSel) && s.name.toLowerCase() === v('ed-name').toLowerCase())) fail('ed-name', `A server named '${v('ed-name')}' already exists.`);
+  }
+  if (!v('ed-host')) fail('ed-host', 'Enter the host name or IP address.');
+  const port = Number(v('ed-port')); if (!Number.isInteger(port) || port < 1 || port > 65535) fail('ed-port', 'Port must be a number from 1 to 65535.');
+  if (!v('ed-user')) fail('ed-user', 'Enter the user name.');
+  if (!$('#ed-pass').value) fail('ed-pass', 'Enter the password.');
+  if (!v('ed-dir')) fail('ed-dir', 'Enter the remote directory, for example /home/user/clipboard.');
+  if (first) $('#' + first).focus();
+  return !first;
+}
+$('#ed-test').addEventListener('click', () => { if (validateEditor(true)) testConnection($('#ed-test'), 'Test connection'); });
+$('#ed-save').addEventListener('click', () => {
+  if (!validateEditor(false)) return;
+  const s = { name: $('#ed-name').value.trim(), proto: $('#ed-proto').value, host: $('#ed-host').value.trim(), port: $('#ed-port').value.trim(),
+    user: $('#ed-user').value.trim(), pass: $('#ed-pass').value, dir: $('#ed-dir').value.trim(), passive: $('#ed-passive').checked };
+  if (edNew) { svDraft.push(s); if (svDraft.length === 1) svActive = s.name; svSel = svDraft.length - 1; }
+  else { if (svDraft[svSel].name === svActive) svActive = s.name; svDraft[svSel] = s; }
+  hide('editor'); if (!stack.includes('servers')) show('servers'); renderServers();
+});
+$('#ed-cancel').addEventListener('click', () => hide('editor'));
+$('#ed-form').addEventListener('submit', e => { e.preventDefault(); $('#ed-save').click(); });
+$('#w-editor').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.tagName === 'INPUT') { e.preventDefault(); $('#ed-save').click(); } });
+
+/* ---- Tray ---- */
+const TRAY = {
+  idle: { bg: '#007850', fg: '#ffffff', badge: false },
+  upload: { bg: '#007850', fg: '#ffd200', badge: false },
+  uploading: { bg: '#005faa', fg: '#ffffff', badge: true },
+};
+function drawTray(state) {
+  const t = TRAY[state];
+  $('#tray-svg').innerHTML = `<rect x="2" y="2" width="28" height="28" rx="7" fill="${t.bg}"/>
+    <rect x="9" y="8" width="10" height="8" fill="${t.fg}" opacity=".24"/><rect x="13" y="18" width="8" height="3" fill="${t.fg}" opacity=".24"/>
+    <rect x="8" y="7" width="12" height="10" fill="none" stroke="${t.fg}" stroke-width="2"/><path d="M12 20h12v-8" fill="none" stroke="${t.fg}" stroke-width="2"/>
+    ${t.badge ? '<circle cx="23" cy="9" r="6" fill="#ffbe2d"/><path d="M23 12V6M20 9l3-3 3 3" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' : ''}`;
+  const servers = $('#h-noservers').checked ? [] : savedServers;
+  const tip = state === 'uploading' ? 'Clipped Image to Path uploading 3.2s'
+    : state === 'upload' ? (servers.length ? `Clipped Image to Path - Upload to ${savedActive}` : 'Clipped Image to Path - Remote upload enabled')
+    : 'Clipped Image to Path';
+  $('#tray-tip').textContent = tip; $('#tray-btn').setAttribute('aria-label', tip);
+}
+function applyTrayState() {
+  const sel = $('#h-tray');
+  if (sel.value !== 'uploading') sel.value = saved.upload ? 'upload' : 'idle';
+  drawTray(sel.value); renderMenu();
+}
+$('#h-tray').addEventListener('change', () => { saved.upload = $('#h-tray').value !== 'idle'; drawTray($('#h-tray').value); renderMenu(); });
+function renderMenu() {
+  const on = saved.upload;
+  $('#mi-upload').setAttribute('aria-checked', String(on));
+  $('#mi-upload-check').innerHTML = on ? '<svg viewBox="0 0 16 16"><use href="#ico-check"/></svg>' : '';
+  const servers = $('#h-noservers').checked ? [] : savedServers;
+  const enabled = on && servers.length > 0;
+  $('#mi-active').setAttribute('aria-disabled', String(!enabled));
+  $('#mi-active-text').textContent = servers.length ? `Active server: ${savedActive}` : 'Active server: (none)';
+  const sub = $('#tray-sub'); sub.innerHTML = '';
+  if (!servers.length) sub.innerHTML = '<button role="menuitem" aria-disabled="true"><span></span><span>(no servers configured)</span><span></span></button>';
+  servers.forEach(s => {
+    const b = document.createElement('button'); b.setAttribute('role', 'menuitemradio'); b.setAttribute('aria-checked', String(s.name === savedActive));
+    b.innerHTML = `<span>${s.name === savedActive ? '<svg viewBox="0 0 16 16"><use href="#ico-check"/></svg>' : ''}</span><span>${s.name}</span><span></span>`;
+    b.addEventListener('click', () => { savedActive = s.name; refreshServerSummary(); drawTray($('#h-tray').value); $('#tray-menu').hidden = true; previewToast(`uploads now go to ${s.name}`); });
+    sub.appendChild(b);
+  });
+}
+$('#tray-btn').addEventListener('click', (e) => { e.stopPropagation(); renderMenu(); $('#tray-sub').hidden = true; $('#tray-menu').hidden = !$('#tray-menu').hidden; });
+$('#mi-upload').addEventListener('click', (e) => {
+  e.stopPropagation(); // keeps the menu open, like the app
+  saved.upload = !saved.upload; $('#h-tray').value = saved.upload ? 'upload' : 'idle'; drawTray($('#h-tray').value); renderMenu();
+  if (saved.upload) showWinToast('Remote upload enabled', (($('#h-noservers').checked) ? 'Remote upload is enabled, but no server is selected.' : `Remote upload to ${savedActive} is enabled.`));
+});
+$('#mi-active').addEventListener('mouseenter', () => { if ($('#mi-active').getAttribute('aria-disabled') !== 'true') $('#tray-sub').hidden = false; });
+$('#mi-active').addEventListener('click', (e) => { e.stopPropagation(); if ($('#mi-active').getAttribute('aria-disabled') !== 'true') $('#tray-sub').hidden = !$('#tray-sub').hidden; });
+$('#mi-settings').addEventListener('click', () => { $('#tray-menu').hidden = true; openSettings('p-saved'); });
+$('#mi-exit').addEventListener('click', () => { $('#tray-menu').hidden = true; previewToast('Exit releases the clipboard listener, hotkey and tray icon, then closes the app'); });
+$('#tray-menu').addEventListener('click', e => e.stopPropagation());
+document.addEventListener('click', () => { $('#tray-menu').hidden = true; });
+
+function showWinToast(title, text) {
+  $('#tw-title').textContent = title; $('#tw-text').textContent = text; const t = $('#toast-win'); t.hidden = false;
+  clearTimeout(t._h); t._h = setTimeout(() => t.hidden = true, 6000);
+}
+$('#toast-x').addEventListener('click', () => $('#toast-win').hidden = true);
+
+/* ---- Harness routing ---- */
+function openSettings(page) { loadSettings(); show('settings'); selectTab(page); }
+$$('[data-open]').forEach(b => b.addEventListener('click', (e) => {
+  e.stopPropagation(); closeAll(); applyTheme(saved.theme);
+  const [what, sub] = b.dataset.open.split(':');
+  switch (what) {
+    case 'tray': renderMenu(); $('#tray-menu').hidden = false; break;
+    case 'settings': openSettings(sub === 'about' ? 'p-about' : sub === 'diagnostics' ? 'p-diagnostics' : 'p-saved'); break;
+    case 'servers': openSettings('p-remote'); openServers(); break;
+    case 'editor-add': openSettings('p-remote'); openServers(); openEditor(true); break;
+    case 'editor-edit': openSettings('p-remote'); openServers(); if (svDraft.length) { svSel = 0; renderServers(); openEditor(false); } else openEditor(true); break;
+    case 'update': openUpdate(); break;
+    case 'toast-enabled': showWinToast('Remote upload enabled', `Remote upload to ${savedActive} is enabled.`); break;
+    case 'toast-reminder': showWinToast('Remote upload reminder', 'Remote upload is still enabled. Disable it when you no longer need it.'); break;
+    case 'msg-uptodate': message('success', 'You are running version 1.7.3.', 'No newer installer version is available.'); break;
+    case 'msg-checkfail': message('warning', 'Could not check for updates. Please try again later.', 'No such host is known. (api.github.com:443)'); break;
+  }
+}));
+$('#h-noservers').addEventListener('change', () => { refreshServerSummary(); renderMenu(); drawTray($('#h-tray').value); });
+
+/* ---- Boot ---- */
+function fitHarness() { document.documentElement.style.setProperty('--hh', $('.harness').offsetHeight + 'px'); }
+addEventListener('resize', fitHarness);
+document.addEventListener('DOMContentLoaded', () => {
+  fitHarness();
+  // Optional deep links for review: ?win=dark&open=servers (any harness data-open value)
+  const q = new URLSearchParams(location.search);
+  if (q.get('win') === 'dark' || q.get('win') === 'light') windowsTheme = q.get('win');
+  applyTheme('system'); drawTray('idle'); renderMenu(); refreshServerSummary();
+  const open = q.get('open');
+  const target = open && $(`[data-open="${open}"]`);
+  if (target) target.click(); else openSettings('p-saved');
+  const tab = q.get('tab'); if (tab) selectTab(tab);
+});
+</script>
+</body>
+</html>

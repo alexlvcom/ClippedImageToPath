@@ -69,6 +69,73 @@ try
 }
 finally { if (Directory.Exists(cache)) Directory.Delete(cache, true); }
 
+// Download progress feeds the update dialog's progress bar.
+var progressCache = Path.Combine(Path.GetTempPath(), "clipped-progress-tests-" + Guid.NewGuid().ToString("N"));
+try
+{
+    using var service = new UpdateService(new FakeHandler(payload, digest));
+    var update = (await service.CheckAsync(current, default))!;
+    long reported = 0;
+    await service.DownloadAsync(update, progressCache, default, new SyncProgress(p => reported = p.Received));
+    Check(reported == payload.Length, "download progress reports the received bytes");
+}
+finally { if (Directory.Exists(progressCache)) Directory.Delete(progressCache, true); }
+
+// Settings: the theme setting and the Settings draft.
+var settingsFolder = Path.Combine(Path.GetTempPath(), "clipped-settings-tests-" + Guid.NewGuid().ToString("N"));
+try
+{
+    var settingsPath = Path.Combine(settingsFolder, "settings.json");
+    Check(new AppSettings().Theme == AlexLV.WindowsUi.AppTheme.System, "the theme follows Windows by default");
+
+    var saved = AppSettings.Load(settingsPath);
+    saved.Theme = AlexLV.WindowsUi.AppTheme.Dark;
+    saved.Save();
+    Check(AppSettings.Load(settingsPath).Theme == AlexLV.WindowsUi.AppTheme.Dark, "the chosen theme survives a save and load");
+    Check(!File.Exists(settingsPath + ".tmp"), "an atomic save leaves no temporary file");
+
+    var json = File.ReadAllText(settingsPath);
+    File.WriteAllText(settingsPath, System.Text.RegularExpressions.Regex.Replace(json, "\"Theme\":\\s*\\d+", "\"Theme\": 42"));
+    Check(AppSettings.Load(settingsPath).Theme == AlexLV.WindowsUi.AppTheme.System, "a hand-edited unknown theme falls back to System");
+
+    var running = new AppSettings { Theme = AlexLV.WindowsUi.AppTheme.Light };
+    running.RemoteServers.Add(new RemoteServer { Name = "dev-box", Host = "dev.example" });
+    var draft = running.Clone();
+    draft.Theme = AlexLV.WindowsUi.AppTheme.Dark;
+    draft.RemoteServers[0].Host = "changed.example";
+    draft.RemoteServers.Add(new RemoteServer { Name = "second" });
+    Check(running.Theme == AlexLV.WindowsUi.AppTheme.Light && running.RemoteServers.Count == 1
+          && running.RemoteServers[0].Host == "dev.example", "a Settings draft leaves the running settings unchanged");
+}
+finally { if (Directory.Exists(settingsFolder)) Directory.Delete(settingsFolder, true); }
+
+// The repository files the app is built from.
+var repo = new DirectoryInfo(AppContext.BaseDirectory);
+while (repo is not null && !File.Exists(Path.Combine(repo.FullName, "ClippedImageToPath.csproj"))) repo = repo.Parent;
+if (repo is null) throw new Exception("repository root not found");
+var project = File.ReadAllText(Path.Combine(repo.FullName, "ClippedImageToPath.csproj"));
+
+// WPF creates real cultures when it measures text; invariant globalization crashed Tray Keeper's first TextBox.
+Check(!project.Contains("<InvariantGlobalization>true</InvariantGlobalization>"), "the app keeps culture data for WPF text layout");
+
+// One version source: the .csproj version must have notes in CHANGELOG.md, which About and the title read.
+var projectVersion = System.Text.RegularExpressions.Regex.Match(project, "<Version>([^<]+)</Version>").Groups[1].Value;
+var entries = Changelog.Parse(File.ReadAllText(Path.Combine(repo.FullName, "CHANGELOG.md")));
+Check(entries.Length > 0 && entries[0].Version == projectVersion, $"newest CHANGELOG.md entry matches the project version {projectVersion}");
+foreach (var tag in new[] { "<InformationalVersion>", "<FileVersion>", "<AssemblyVersion>" })
+{
+    var value = System.Text.RegularExpressions.Regex.Match(project, tag + "([^<]+)<").Groups[1].Value;
+    Check(value == projectVersion || value == projectVersion + ".0", $"{tag.Trim('<', '>')} matches {projectVersion}");
+}
+Check(entries[0].Sections.SelectMany(s => s.Bullets).All(b => !b.Contains("**")), "release notes are shown without Markdown emphasis");
+Check(Changelog.Parse("## 2.0.0 - 2026-01-01\n\n### Main changes\n\n- **Bold:** text\n\n## 1.9.0 - 2025-12-01\n\n- old")[1].Version == "1.9.0",
+    "changelog parsing finds every release");
+
+sealed class SyncProgress(Action<(long Received, long? Total)> report) : IProgress<(long Received, long? Total)>
+{
+    public void Report((long Received, long? Total) value) => report(value);
+}
+
 sealed class FakeHandler(byte[] payload, string digest, HttpStatusCode status = HttpStatusCode.OK) : HttpMessageHandler
 {
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)

@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.8.0 - 2026-10-20
+
+### Main changes
+
+- **Modern redesign:** Settings, Remote Servers, the server editor, the update dialog, every message and the tray menu now use the modern look shared by all AlexLV Windows apps: flat cards, toggle switches, themed title bars and the green accent of the app icon.
+- **Light and dark themes:** a new Appearance tab offers Theme with System (default), Light and Dark. System follows the Windows light or dark mode and switches live when Windows changes; a new choice previews at once and Cancel restores the saved theme.
+- **About and Diagnostics in Settings:** About moved from the tray menu into Settings with release notes for the running version, and a Diagnostics tab shows the executable, settings and log paths with Open buttons and Copy details. Every Settings tab fits its window without scrolling.
+
+### Other updates
+
+- The server editor shows each problem under its field instead of in a pop-up, and passive mode is greyed out for SFTP, where it does not apply.
+- The Updates tab shows when the last check ran, and the update dialog shows download progress and offers Try again after a timeout or failure.
+- The Remote upload tab names the server uploads go to and how many servers are configured.
+- Windows open already themed instead of flashing light first.
+
 ## 1.7.3 - 2026-10-20
 
 ### Main changes
