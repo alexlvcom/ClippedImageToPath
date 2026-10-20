@@ -204,6 +204,7 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         ApplyUpdateSchedule();
         // Start after construction, as soon as the UI message loop runs.
         _uiContext.Post(async _ => await CheckForUpdatesAsync(false), null);
+        WhatsNewWindow.Schedule();
         Log($"started v{Changelog.MarketingVersion}");
     }
 

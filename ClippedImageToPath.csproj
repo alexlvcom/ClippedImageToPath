@@ -17,10 +17,10 @@
     <Company>Alex LV</Company>
     <Copyright>Copyright © 2026 Alex LV</Copyright>
     <ApplicationIcon>ClippedImageToPath.ico</ApplicationIcon>
-    <Version>1.8.1</Version>
-    <FileVersion>1.8.1.0</FileVersion>
-    <AssemblyVersion>1.8.1.0</AssemblyVersion>
-    <InformationalVersion>1.8.1</InformationalVersion>
+    <Version>1.8.2</Version>
+    <FileVersion>1.8.2.0</FileVersion>
+    <AssemblyVersion>1.8.2.0</AssemblyVersion>
+    <InformationalVersion>1.8.2</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <!-- WPF text layout creates real cultures (for example "en") when it measures fonts; invariant
          globalization makes the first TextBox throw and crash the app. -->

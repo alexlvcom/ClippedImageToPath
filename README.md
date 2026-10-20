@@ -11,6 +11,12 @@ not a clipboard image. This bridges the two.
 
 ![Settings](ClippedImageToPath-Settings.png)
 
+## Updates And What’s New
+
+Clicking **Update** checks the latest stable release again before downloading, so a prompt left open skips any superseded versions. The installer URL and SHA-256 both come from that fresh check. If the check fails, the app stops and reports the error instead of installing the old offer.
+
+After installation or an upgrade, **What’s New** shows the running version’s main changes from the bundled changelog, with **Got it** and **View full change history**. It remembers the shown version on this PC, so normal restarts stay quiet.
+
 ## Why you'd want it
 
 Coding agents work with images by **file path**. Some can grab an image off your

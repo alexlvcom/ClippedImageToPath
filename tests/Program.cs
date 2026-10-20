@@ -4,6 +4,8 @@ using System.Text;
 using System.Text.Json;
 using ClippedImageToPath.Ui;
 
+await LatestUpdateTests.RunAsync();
+ReleaseAcknowledgementTests.Run();
 var payload = Encoding.UTF8.GetBytes("test installer payload");
 var digest = Convert.ToHexString(SHA256.HashData(payload));
 const string root = "https://github.com/alexlvcom/ClippedImageToPath/releases/download/v1.8.0/";
