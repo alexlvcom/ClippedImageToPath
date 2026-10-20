@@ -46,7 +46,10 @@ internal partial class SettingsWindow : ThemedWindow
         _original = draft.Clone();
         _host = host;
 
-        Title = $"{AppInfo.DisplayName} Settings (v{Changelog.MarketingVersion})";
+        // The version sits at the right of the title row; clicking it opens Updates.
+        Title = $"{AppInfo.DisplayName} Settings";
+        TitleVersion = $"v{Changelog.MarketingVersion}";
+        VersionClick += (_, _) => Tabs.SelectedItem = UpdatesTab;
 
         Folder.Text = draft.OutputDirectory;
         FileNameExample.Text = host.FileNameExample;
