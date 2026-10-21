@@ -360,7 +360,7 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
                 $"You have {current} · {checkedAt}");
             if (!manual && _lastOfferedUpdate == update.Version) return available;
             _lastOfferedUpdate = update.Version;
-            // The dialog is modal; post it so the status card shows the result first.
+            // Post the offer so the status card shows the result first.
             _uiContext.Post(_ => ShowUpdateDialog(update), null);
             return available;
         }
@@ -390,21 +390,19 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
 
     private void ShowUpdateDialog(AppUpdate update)
     {
-        if (_updateWindow is not null)
+        if (_exiting) return;
+        // An open offer refreshes to the latest release when Update is clicked, so bring it forward instead of stacking another.
+        if (_updateWindow is { } open)
         {
-            _updateWindow.Activate();
+            WinFormsHosting.ShowModeless(open);
             return;
         }
 
-        _updateWindow = new UpdateWindow(update, _updates, _updateCancellation.Token, Log);
-        try
-        {
-            _updateWindow.ShowDialog();
-        }
-        finally
-        {
-            _updateWindow = null;
-        }
+        var window = new UpdateWindow(update, _updates, _updateCancellation.Token, Log);
+        window.Closed += (_, _) => { if (_updateWindow == window) _updateWindow = null; };
+        _updateWindow = window;
+        // Modeless, so an unanswered offer never disables Settings or blocks later checks.
+        WinFormsHosting.ShowModeless(window);
     }
 
     /// <summary>Saves background state (toggles, check time) without failing the caller.</summary>

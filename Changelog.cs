@@ -38,6 +38,27 @@ internal static class Changelog
 
     internal static ChangelogEntry? Find(string version) => Entries.FirstOrDefault(e => e.Version == version);
 
+    /// <summary>
+    /// What's New: the Main changes of every release after <paramref name="previous"/> up to <paramref name="current"/>, newest
+    /// first. Without a previous release only the current one is included. A release without Main changes is skipped, except the
+    /// current one, which then shows all of its notes.
+    /// </summary>
+    internal static IReadOnlyList<ChangelogEntry> MainChangesSince(IEnumerable<ChangelogEntry> entries, Version? previous, string current)
+    {
+        if (!Version.TryParse(current, out var target)) return [];
+        var releases = new List<ChangelogEntry>();
+        foreach (var entry in entries)
+        {
+            if (!Version.TryParse(entry.Version, out var version)) continue;
+            if (previous is null ? version != target : version <= previous || version > target) continue;
+            var main = entry.Sections.Where(s => string.Equals(s.Heading, "Main changes", StringComparison.OrdinalIgnoreCase)).ToArray();
+            if (main.Length > 0) releases.Add(entry with { Sections = main });
+            else if (version == target) releases.Add(entry);
+        }
+
+        return releases;
+    }
+
     internal static string GetReleaseNotes(string version)
     {
         var entry = Find(version);

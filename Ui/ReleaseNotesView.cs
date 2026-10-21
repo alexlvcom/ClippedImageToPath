@@ -36,6 +36,29 @@ internal static class ReleaseNotesView
         }
     }
 
+    /// <summary>What's New: one release as is, or several newest first, each under its version heading.</summary>
+    internal static void FillReleases(Panel panel, IReadOnlyList<ChangelogEntry> releases)
+    {
+        if (releases.Count <= 1)
+        {
+            Fill(panel, releases.FirstOrDefault());
+            return;
+        }
+
+        foreach (var release in releases)
+        {
+            var heading = Text($"{release.Version} - {release.Date}", "StrongText");
+            heading.FontSize = 15;
+            heading.Margin = new Thickness(0, panel.Children.Count == 0 ? 0 : 14, 0, 6);
+            panel.Children.Add(heading);
+            // Every listed section is Main changes, so the version heading replaces the section heading.
+            var bullets = release.Sections.Where(s => string.Equals(s.Heading, "Main changes", StringComparison.OrdinalIgnoreCase)).ToArray();
+            Fill(panel, bullets.Length == release.Sections.Count
+                ? release with { Sections = bullets.Select(s => s with { Heading = null }).ToArray() }
+                : release);
+        }
+    }
+
     private static TextBlock Text(string text, string style)
     {
         var block = new TextBlock { Text = text };

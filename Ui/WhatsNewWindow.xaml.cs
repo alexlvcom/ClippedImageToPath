@@ -4,20 +4,20 @@ using AlexLV.WindowsUi;
 
 namespace ClippedImageToPath.Ui;
 
-/// <summary>Current-version highlights, acknowledged locally only after rendering.</summary>
+/// <summary>
+/// Highlights shown once after installation or upgrade: the Main changes of every release since <c>previous</c>, or only the
+/// current one on a fresh installation. Acknowledged locally only after rendering.
+/// </summary>
 public partial class WhatsNewWindow : ThemedWindow
 {
-    public WhatsNewWindow()
+    public WhatsNewWindow(Version? previous = null)
     {
         InitializeComponent();
         Title = $"{AppInfo.DisplayName} What's New";
         TitleVersion = $"v{Changelog.MarketingVersion}";
         Heading.Text = $"What’s new in {AppInfo.DisplayName} {Changelog.MarketingVersion}";
-        var entry = Changelog.Current;
-        var main = entry?.Sections.Where(s => string.Equals(s.Heading, "Main changes", StringComparison.OrdinalIgnoreCase)).ToArray();
-        if (entry is not null && main is { Length: > 0 })
-            entry = new ChangelogEntry(entry.Version, entry.Date, main);
-        ReleaseNotesView.Fill(Changes, entry);
+        if (previous is not null) Subtitle.Text = $"Here’s what changed since v{previous.ToString(3)}.";
+        ReleaseNotesView.FillReleases(Changes, Changelog.MainChangesSince(Changelog.Entries, previous, Changelog.MarketingVersion));
         Loaded += (_, _) => ContinueButton.Focus();
     }
 
@@ -38,7 +38,7 @@ public partial class WhatsNewWindow : ThemedWindow
         if (!state.ShouldShow(Changelog.MarketingVersion)) return;
         try
         {
-            var window = new WhatsNewWindow { Owner = owner };
+            var window = new WhatsNewWindow(state.PreviousRelease()) { Owner = owner };
             var recorded = false;
             window.ContentRendered += (_, _) =>
             {

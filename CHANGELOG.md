@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.8.3 - 2026-10-21
+
+### Other updates
+
+- After an upgrade that skipped releases, What’s New lists the main changes of every release since the version you had, newest first.
+- An unanswered update offer no longer locks Settings, so Check for updates keeps working while the offer is open.
+
 ## 1.8.2 - 2026-10-20
 
 ### Main changes

@@ -65,7 +65,10 @@ app and restarts the installed copy after the upgrade.
 
 **Later** suppresses repeat prompts for that version until you restart the app.
 The Settings button **Check for updates** checks immediately and can reopen a dismissed
-update. Background network failures stay quiet; a manual check shows errors.
+update. The offer window doesn't block Settings, and a later check brings an open offer
+forward. Background network failures stay quiet; a manual check shows errors.
+After an upgrade, What’s New lists the main changes of every release since the version
+you had, newest first; a fresh installation shows only the installed release.
 Drafts, prereleases, and older releases that only contain a portable EXE are ignored.
 Downloaded installers are kept under `%LOCALAPPDATA%\ClippedImageToPath\Updates`.
 
