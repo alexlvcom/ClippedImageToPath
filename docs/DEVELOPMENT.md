@@ -19,6 +19,9 @@ The script reads the version from the project file and publishes a self-containe
 Windows x64 app before compiling the Inno Setup installer. Pass `-IsccPath` if
 Inno Setup is installed outside its default location.
 
+The setup wizard images in `installer\images` are generated from the app icon by
+`./scripts/generate-installer-images.ps1`. Run it again after changing the icon.
+
 Push a matching version tag (for example `v1.7.0`) to build and publish a GitHub
 release with only the installer and checksum as download assets. Manual workflow
 runs build a downloadable artifact without publishing a release.

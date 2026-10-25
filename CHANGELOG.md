@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.8.4 - 2026-10-25
+
+### Other updates
+
+- The setup wizard shows the app logo on its welcome, finish and page header panels, sharp at every display scaling.
+
 ## 1.8.3 - 2026-10-21
 
 ### Other updates
