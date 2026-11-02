@@ -90,7 +90,7 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
     private readonly UpdateService _updates = new();
     private readonly CancellationTokenSource _updateCancellation = new();
     private readonly System.Windows.Forms.Timer _updateTimer;
-    private DateTime _nextUpdateCheckUtc;
+    private DateTime _updateRetryAfterUtc;
     private bool _checkingUpdate;
     private Task<UpdateStatus>? _runningCheck;
     private bool _exiting;
@@ -197,8 +197,7 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         _updateTimer = new System.Windows.Forms.Timer { Interval = 60 * 1000 };
         _updateTimer.Tick += async (_, _) =>
         {
-            if (DateTime.UtcNow < _nextUpdateCheckUtc || _checkingUpdate) return;
-            _nextUpdateCheckUtc = UpdateSchedule.NextCheck(DateTime.UtcNow, _settings.UpdateCheckFrequency);
+            if (_checkingUpdate || !UpdateDue()) return;
             await CheckForUpdatesAsync(false);
         };
         ApplyUpdateSchedule();
@@ -316,9 +315,12 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
     {
         _settings.UpdateCheckFrequency = UpdateSchedule.Normalize(_settings.UpdateCheckFrequency);
         _updateTimer.Stop();
-        _nextUpdateCheckUtc = UpdateSchedule.NextCheck(DateTime.UtcNow, _settings.UpdateCheckFrequency);
         if (_settings.UpdateCheckFrequency != UpdateCheckFrequency.Never) _updateTimer.Start();
     }
+
+    private bool UpdateDue() =>
+        DateTime.UtcNow >= _updateRetryAfterUtc
+        && UpdateSchedule.IsDue(_settings.UpdateCheckFrequency, _settings.LastUpdateCheckUtc, DateTime.UtcNow);
 
     /// <summary>
     /// Checks GitHub. The result is shown in place in Settings → Updates; only a newer release opens a
@@ -372,7 +374,12 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         {
             Log($"update check failed: {ex.Message}");
             if (_exiting) return new UpdateStatus(UpdateState.NotChecked, "Not checked", $"Version {current}");
+            // A failed check (for example the network is not back yet after sleep) must not silence updates for a whole period.
+            var previousCheck = _settings.LastUpdateCheckUtc;
             RememberUpdateCheck(current, UpdateCheckOutcome.Failed, available: null, ex.Message);
+            _settings.LastUpdateCheckUtc = previousCheck;
+            _updateRetryAfterUtc = DateTime.UtcNow.AddMinutes(10);
+            TrySaveSettings("update check retry");
             return new UpdateStatus(UpdateState.Failed, "Could not check for updates", $"Version {current} · {ex.Message}");
         }
     }
@@ -476,6 +483,7 @@ internal sealed class ClipboardBridgeContext : ApplicationContext
         }
 
         ApplyUpdateSchedule();
+        if (UpdateDue()) _ = CheckForUpdatesAsync(false);
         UpdateRemoteUploadReminderTimer();
         RefreshIdleTrayIcon();
         ThemeManager.Apply(_settings.Theme);

@@ -20,4 +20,8 @@ internal static class UpdateSchedule
         UpdateCheckFrequency.Never => DateTime.MaxValue,
         _ => nowUtc.AddDays(1),
     };
+
+    internal static bool IsDue(UpdateCheckFrequency frequency, DateTime? lastCheckUtc, DateTime nowUtc) =>
+        Normalize(frequency) != UpdateCheckFrequency.Never
+        && (lastCheckUtc is not { } last || nowUtc >= NextCheck(last, frequency));
 }

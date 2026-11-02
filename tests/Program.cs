@@ -26,6 +26,10 @@ Check(UpdateSchedule.NextCheck(now, UpdateCheckFrequency.Weekly) == now.AddDays(
 Check(UpdateSchedule.NextCheck(now, UpdateCheckFrequency.Monthly) == new DateTime(2026, 2, 28, 12, 0, 0, DateTimeKind.Utc), "calendar month handles month end");
 Check(UpdateSchedule.NextCheck(now, UpdateCheckFrequency.Never) == DateTime.MaxValue, "Never disables scheduled checks");
 Check(UpdateSchedule.Normalize((UpdateCheckFrequency)99) == UpdateCheckFrequency.Daily, "invalid saved frequency falls back to daily");
+Check(UpdateSchedule.IsDue(UpdateCheckFrequency.Daily, null, now), "never-checked install is due");
+Check(!UpdateSchedule.IsDue(UpdateCheckFrequency.Daily, now.AddHours(-23), now), "daily check is not due early");
+Check(UpdateSchedule.IsDue(UpdateCheckFrequency.Daily, now.AddDays(-1), now), "daily check is due after a day");
+Check(!UpdateSchedule.IsDue(UpdateCheckFrequency.Never, null, now), "Never is never due");
 var current = new Version(1, 7, 0);
 if (args.Contains("--live"))
 {
