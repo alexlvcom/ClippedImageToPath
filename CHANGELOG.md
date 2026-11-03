@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.8.5 - 2026-11-03
+
+### Other updates
+
+- Fix automatic update checks: reliable 1-minute scheduling and retry after failed checks.
+
 ## 1.8.4 - 2026-10-25
 
 ### Other updates
